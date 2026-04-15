@@ -1,5 +1,13 @@
-<!-- last-commit: d9d68fab7c367b09fb89f8e8e6ef7c7b6cd4d8c4 -->
+<!-- last-commit: f1fb8214409978d95b38bd97f3da125eda069f33 -->
 # Patch Notes
+
+## v0.4.0 — 2026-04-15
+
+### implement xml_parser and AuditReport dataclasses
+Adds `xml_parser.py`, which deserializes the LLM's structured XML audit output into typed Python dataclasses (`AuditReport`, `Finding`, `Tier4Finding`). Handles all four tier variants, extracts Nielsen heuristic and WCAG criterion metadata, and surfaces parse warnings for malformed or partially-valid XML rather than raising hard errors. Includes 384-line test suite covering happy paths, malformed inputs, and edge cases across all tier types.
+
+### move spec-03 to applied subfolder
+Moves `spec-03-axe-core-runner.md` into `specs/applied/` to mark the axe-core runner spec as complete and keep the active specs directory uncluttered.
 
 ## v0.3.0 — 2026-04-15
 
