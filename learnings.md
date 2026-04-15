@@ -30,6 +30,16 @@
 **What happened**: The implementer bundled the working log (`Working Logs/wlog--...md`) into the `feat:` commit because it staged more than the `git add ui-analyzer/` prescribed in the impl plan's Step 11.
 **Suggestion**: Add a "Commit discipline" rule to impl.md: when the impl plan prescribes `git add <directory>/`, stage only that path — never use `git add -A` or `git add .` or add any path not listed in the impl plan's "Scope — files in play". Working logs and process artifacts must not appear in feature commits.
 
+## Subagent misdiagnoses "no git repo" when EnterWorktree fails
+**Phase affected**: impl
+**What happened**: The impl-plan subagent attempted `EnterWorktree`, which failed (tool unavailable or returned an error). Rather than diagnosing the actual failure, the subagent concluded the project had no git repository at all — and the implementer inherited this incorrect belief, skipping the commit step entirely. The repo existed and was fully functional throughout.
+**Suggestion**: Add a rule to impl.md and impl-plan.md: if `EnterWorktree` fails, verify git repo presence independently with `git rev-parse --show-toplevel` before declaring "no git repo." A worktree creation failure means the tool is unavailable — not that git itself is absent. Work proceeds in the main repo and the commit step must still run.
+
+## Count test functions before publishing test count in impl plan
+**Phase affected**: impl-plan
+**What happened**: The impl plan stated "13 tests passing" in two places (the verification command and the checklist), but the embedded test file had exactly 12 `def test_` functions. The discrepancy is harmless but erodes trust in the plan's accuracy.
+**Suggestion**: Add a rule to impl-plan.md: when embedding a full test file in the plan, count the `def test_` functions explicitly and use that count in every reference to the expected pass count. Do not estimate.
+
 ## Spec internal inconsistency caught only by audit, not impl-plan
 **Phase affected**: impl-plan
 **What happened**: The spec's "axe block logic" section described `axe_result=None` as unconditionally omitting the axe block, but the Success Criteria section added a fourth branch (`None + source_type="url"`) that the logic section never mentioned. The impl plan faithfully followed the logic section, so the implementer never tested the missing branch. The audit caught the inconsistency, triggering a fix loop.
