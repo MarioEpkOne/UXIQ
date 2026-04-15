@@ -1,5 +1,28 @@
-<!-- last-commit: a716c0105d7c2d5e6557b7a1326af6ec0a2cdfb0 -->
+<!-- last-commit: d9d68fab7c367b09fb89f8e8e6ef7c7b6cd4d8c4 -->
 # Patch Notes
+
+## v0.3.0 — 2026-04-15
+
+### implement image_source.py with URL capture and file loading
+Adds `image_source.py` as the first data-ingestion module, handling both URL screenshots (via Playwright Chromium) and local file paths (PNG/JPG/WebP). Images with a longest edge over 1568px are automatically downsampled with Pillow LANCZOS before passing downstream. Also establishes the test fixtures directory with five synthetic images and 11 unit tests covering all file-mode and URL error paths.
+
+### pipeline artifacts for spec-02 image-source-resolution
+Commits the implementation plan, working log, and retro for spec-02; moves the spec to `specs/applied/` to mark it complete.
+
+### implement axe_runner.py with WCAG 2.1 AA axe-core integration
+Adds `axe_runner.py`, which launches a dedicated Playwright browser per call, injects axe-core 4.9.1 from CDN, and runs WCAG 2.1 AA checks. Maps four axe rules to WCAG criteria (1.4.3, 1.4.11, 2.5.8, 1.4.1), extracts contrast ratios and touch-target sizes from node data, and returns soft `AxeFailure` on any error rather than raising — keeping the pipeline fault-tolerant when axe-core is unavailable.
+
+### enforce axe-core timeout via Promise.race (remove invalid page.evaluate timeout kwarg)
+Playwright's Python `page.evaluate()` does not accept a `timeout` keyword argument; the previous implementation silently ignored the intended 10-second limit. Replaced with a JS-side `Promise.race` + `setTimeout(10000)` to properly enforce the cutoff. Also adds `browser.close()` on all early-return failure paths to prevent browser leaks.
+
+### spec-03 pipeline artifacts (axe-core runner impl plan, audit, learnings)
+Commits the full spec-03 pipeline paper trail: implementation plan, audit report, fixer log, and learnings additions. Includes the spec-03 spec file.
+
+### add rubric definition modules (spec-04)
+Creates the `ui_analyzer/rubric/` package with all static tier definition constants used by the prompt builder: WCAG/Gestalt/Nielsen rubric dicts for Tiers 1–3, four app-type-specific Tier 4 dicts, and the raw `OUTPUT_SCHEMA_XML` string for verbatim injection into the LLM user message. None of these generate content dynamically — they are pure data modules that can be diffed and iterated independently of pipeline logic.
+
+### wrap-up pipeline artifacts for spec-04 rubric definitions
+Commits the spec-04 implementation plan and audit retro to the repository.
 
 ## v0.2.0 — 2026-04-15
 
