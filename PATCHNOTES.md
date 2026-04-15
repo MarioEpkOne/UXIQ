@@ -1,5 +1,19 @@
-<!-- last-commit: 23583a15b6185f17cdb645815b1abdeec25ffd45 -->
+<!-- last-commit: 1b196459194c0849e7e9b4ad15a5b47d00520fd4 -->
 # Patch Notes
+
+## v0.6.0 — 2026-04-15
+
+### add tool_definition and handler — public surface of ui_analyzer
+Adds the two user-facing modules that complete the public API: `tool_definition.py` exposes the Claude Tool Use JSON schema so callers can register the analyzer as a Claude tool, and `handler.py` implements `analyze_ui_screenshot()` — the single orchestration entry point that chains all 10 pipeline stages (validate → resolve → axe-core → build_thread → API call → parse → compute → render). Also ships `test_handler.py` with 12 unit tests covering all spec scenarios.
+
+### move spec-08 to applied
+Housekeeping commit moving the tool-definition-and-handler spec into the `applied/` directory now that it is fully implemented.
+
+### add full unit test suite for all ui_analyzer modules
+Fills the remaining test gap: adds `test_axe_runner.py`, `test_context_events.py`, `test_prompt_builder.py`, `test_scorer.py`, and `test_report_renderer.py`, and extends `test_handler.py` with the missing preamble unit test and four integration tests. All unit tests run without internet access or an API key; integration tests are automatically skipped when `ANTHROPIC_API_KEY` is unset.
+
+### rewrite test_overall_weighting to call compute() end-to-end
+Corrects `test_overall_weighting` in `test_scorer.py` to call `compute()` with controlled fixture inputs (T1=5.0, T2=3.5, T3=3.5) and assert `scores.overall == 4.1`, replacing the previous tautological formula check that verified arithmetic against itself rather than exercising the real scorer function.
 
 ## v0.5.0 — 2026-04-15
 
