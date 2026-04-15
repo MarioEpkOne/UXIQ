@@ -6,6 +6,7 @@ Tests cover the 7 scenarios specified in Spec 08.
 from __future__ import annotations
 
 import base64
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,6 +17,12 @@ from ui_analyzer.exceptions import UIAnalyzerError
 from ui_analyzer.handler import _media_type, _to_base64, analyze_ui_screenshot
 from ui_analyzer.image_source import ResolvedImage
 from ui_analyzer.xml_parser import AuditReport
+
+_REAL_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+skip_if_no_key = pytest.mark.skipif(
+    _REAL_KEY in ("", "test-key-unit-tests"),
+    reason="ANTHROPIC_API_KEY not set to a real key",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -269,3 +276,82 @@ def test_media_type_webp():
 def test_media_type_png_and_default():
     assert _media_type("/path/to/shot.png") == "image/png"
     assert _media_type("/path/to/shot.bmp") == "image/png"  # default
+
+
+# ---------------------------------------------------------------------------
+# Scenario (unit): non-UI preamble is passed through without raising
+# ---------------------------------------------------------------------------
+
+def test_handler_non_ui_preamble_passes_through(fixtures_dir, mocker):
+    """Claude response with non-UI preamble followed by valid XML → str returned, no exception."""
+    NON_UI_PREAMBLE_XML = (
+        "⚠️ The provided image does not appear to be a web UI screenshot.\n\n"
+        + MINIMAL_VALID_XML
+    )
+
+    mocker.patch(
+        "ui_analyzer.handler.resolve",
+        return_value=_make_resolved_file(),
+    )
+    mock_create = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
+    mock_create.return_value.messages.create.return_value = _make_claude_response(
+        NON_UI_PREAMBLE_XML
+    )
+
+    result = analyze_ui_screenshot(f"{fixtures_dir}/dashboard_good.png", "web_dashboard")
+
+    assert isinstance(result, str)
+    # Does not raise — preamble prose before <audit_report> is stripped by xml_parser;
+    # the valid XML block is extracted and rendered normally.
+    assert "## Tier 1" in result
+
+
+# ---------------------------------------------------------------------------
+# Integration tests — require a real ANTHROPIC_API_KEY
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+@skip_if_no_key
+def test_full_analysis_file_path(fixtures_dir):
+    """Integration: real API call with dashboard_good.png → all four tier headers present."""
+    import pathlib
+    result = analyze_ui_screenshot(
+        str(pathlib.Path(fixtures_dir) / "dashboard_good.png"), "web_dashboard"
+    )
+    assert isinstance(result, str)
+    assert "## Tier 1" in result
+    assert "## Tier 2" in result
+    assert "## Tier 3" in result
+    assert "## Tier 4" in result
+
+
+@pytest.mark.integration
+@skip_if_no_key
+def test_full_analysis_url():
+    """Integration: real URL analysis → 'Authoritative (axe-core)' in report."""
+    result = analyze_ui_screenshot("https://example.com", "web_dashboard")
+    assert isinstance(result, str)
+    assert "Authoritative (axe-core)" in result
+
+
+@pytest.mark.integration
+@skip_if_no_key
+def test_non_ui_image(fixtures_dir):
+    """Integration: non-UI image → str returned, no exception."""
+    import pathlib
+    result = analyze_ui_screenshot(
+        str(pathlib.Path(fixtures_dir) / "not_a_ui.jpg"), "landing_page"
+    )
+    assert isinstance(result, str)  # Does not raise
+
+
+@pytest.mark.integration
+@skip_if_no_key
+def test_app_type_forms(fixtures_dir):
+    """Integration: forms app_type → report header contains 'Tier 4 — Domain Patterns (forms)'."""
+    import pathlib
+    result = analyze_ui_screenshot(
+        str(pathlib.Path(fixtures_dir) / "form.png"), "forms"
+    )
+    assert isinstance(result, str)
+    assert "## Tier 4 — Domain Patterns (forms)" in result
