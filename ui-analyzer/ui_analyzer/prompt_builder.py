@@ -29,13 +29,14 @@ def build_thread(
     axe_result values:
         AxeCoreResult  — axe succeeded; inject <axe_core_result>
         AxeFailure     — axe failed (URL mode); inject <axe_unavailable> with AxeFailure.reason
-        None           — source_type is "file"; omit axe block entirely
+        None + "url"   — axe returned no result (URL mode); inject <axe_unavailable> with reason
+        None + "file"  — source_type is "file"; omit axe block entirely
 
     Canonical event order (must be preserved):
         1. analysis_request
         2. axe_core_result  — if axe_result is AxeCoreResult
-           axe_unavailable  — if axe_result is AxeFailure
-           (omitted entirely — if axe_result is None)
+           axe_unavailable  — if axe_result is AxeFailure or (axe_result is None and source_type == "url")
+           (omitted entirely — if axe_result is None and source_type == "file")
         3. rubric_tier1
         4. rubric_tier2
         5. rubric_tier3
@@ -68,7 +69,17 @@ def build_thread(
                 "recommend manual verification."
             ),
         }))
-    # If axe_result is None (source_type == "file"): omit axe block entirely
+    elif axe_result is None and source_type == "url":
+        events.append(ContextEvent(type="axe_unavailable", data={
+            "reason": "axe-core returned no result",
+            "tier1_mode": "estimated",
+            "instruction": (
+                "You do not have authoritative WCAG data. Base all Tier 1 findings on "
+                "visual estimation only. Mark every Tier 1 finding as ESTIMATED and "
+                "recommend manual verification."
+            ),
+        }))
+    # If axe_result is None and source_type == "file": omit axe block entirely
 
     # 3–7. Rubric events
     events.append(ContextEvent(type="rubric_tier1", data=tier1.TIER1_DEFINITION))
