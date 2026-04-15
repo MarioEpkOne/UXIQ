@@ -116,27 +116,24 @@ def test_tier23_stars_mixed():
 # ---------------------------------------------------------------------------
 
 def test_overall_weighting():
-    """T1=5.0, T2=3.0 (two sev=2 findings), T3=4.0 → overall = 4.0 (Python float)."""
-    # To get T2=3.0: need avg severity such that 5.0 - avg*1.5 = 3.0 → avg=4/3 → not clean.
-    # Simpler: compute manually using a report that yields exactly 5.0, 3.0, 4.0.
-    # T1 = 5.0: no findings
-    # T2 = 3.0: need round(5.0 - avg*1.5, 1) == 3.0 → avg*1.5 = 2.0 → avg = 4/3 (not integer)
-    # OR: build a report, compute scores, and verify the weighted formula directly.
+    """T1=5.0, T2=3.5, T3=3.5 → overall = round(5.0*0.4 + 3.5*0.35 + 3.5*0.25, 1) = 4.1.
 
-    # Use AuditReport with known tier scores and verify overall formula:
-    # We know: overall = round(t1*0.4 + t2*0.35 + t3*0.25, 1)
-    # With t1=5.0, t2=5.0, t3=5.0 → overall = 5.0
-    report_all_pass = _report()
-    scores_all = compute(report_all_pass)
-    assert scores_all.overall == 5.0
-
-    # Verify weighted formula directly:
-    # Mock a Scores object with known values
-    t1 = 5.0
-    t2 = 3.0
-    t3 = 4.0
-    expected_overall = round(t1 * 0.4 + t2 * 0.35 + t3 * 0.25, 1)
-    assert expected_overall == 4.0  # Python float: 4.05 rounds to 4.0
+    Uses compute() end-to-end:
+    - T1=5.0: no tier1 findings (empty list → 5 stars)
+    - T2=3.5: one severity=1 tier2 finding → avg=1.0 → 5.0 - 1.0*1.5 = 3.5
+    - T3=3.5: one severity=1 tier3 finding → avg=1.0 → 5.0 - 1.0*1.5 = 3.5
+    - overall = round(2.0 + 1.225 + 0.875, 1) = 4.1
+    """
+    report = _report(
+        tier1=[],
+        tier2=[_t23(1)],
+        tier3=[_t3(1)],
+    )
+    scores = compute(report)
+    assert scores.tier1 == 5.0
+    assert scores.tier2 == 3.5
+    assert scores.tier3 == 3.5
+    assert scores.overall == 4.1
 
 
 # ---------------------------------------------------------------------------
