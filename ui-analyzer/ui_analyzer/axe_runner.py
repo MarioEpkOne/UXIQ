@@ -123,14 +123,19 @@ def run_axe(url: str) -> AxeCoreResult | AxeFailure:
             try:
                 raw = page.evaluate(
                     """async () => {
-                        return await axe.run(document, {
-                            runOnly: {
-                                type: 'tag',
-                                values: ['wcag2a', 'wcag2aa', 'wcag21aa']
-                            }
-                        });
+                        return await Promise.race([
+                            axe.run(document, {
+                                runOnly: {
+                                    type: 'tag',
+                                    values: ['wcag2a', 'wcag2aa', 'wcag21aa']
+                                }
+                            }),
+                            new Promise((_, reject) => setTimeout(
+                                () => reject(new Error('axe-core timed out')),
+                                10000
+                            ))
+                        ]);
                     }""",
-                    timeout=AXE_TIMEOUT_MS,
                 )
             except Exception as e:
                 logger.warning(
