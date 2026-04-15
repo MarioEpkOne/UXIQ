@@ -15,6 +15,8 @@
 ## Deviations from Plan
 - Plan steps used `python -c` commands; the environment only has `python3` (no `python` alias). All verification commands were run with `python3` instead. All assertions still passed with the same expected output — this is an environment-only difference, not a logic change.
 - `pip install` required `--break-system-packages` flag due to Debian PEP 668 restriction. This is an environment constraint; no package contents were changed.
+- **[Out-of-scope file]** `ui-analyzer/.gitignore` was created and committed despite not being listed in the impl plan's "Scope — files in play." The file contains standard Python ignores (`__pycache__/`, `*.pyc`, `*.egg-info/`, `dist/`, `build/`, `.env`) and was judged harmless, but its creation was not disclosed at commit time and was not approved under the scope rules. Content is accepted as-is; future agents must list any out-of-scope file in this section before committing.
+- **[Process artifact in feature commit]** `Working Logs/wlog--2026-04-15--17-00--project-bootstrap.md` was staged and committed inside the `feat: bootstrap ui-analyzer package scaffold` commit. The impl plan Step 11 prescribed `git add ui-analyzer/` only; the agent staged the working log in addition. The working log is a process artifact and should not appear in a feature commit. Git history cannot be cleanly amended at this stage without a force-push to the shared branch, so this deviation is documented here rather than corrected in history.
 
 ## Verification
 
