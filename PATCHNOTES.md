@@ -1,5 +1,19 @@
-<!-- last-commit: f1fb8214409978d95b38bd97f3da125eda069f33 -->
+<!-- last-commit: 23583a15b6185f17cdb645815b1abdeec25ffd45 -->
 # Patch Notes
+
+## v0.5.0 — 2026-04-15
+
+### implement scorer and report_renderer modules (spec-07)
+Adds `scorer.py` and `report_renderer.py` — two pure, deterministic modules that convert parsed `AuditReport` data into a scored result and a fully-formatted Markdown audit report. The scorer computes per-tier star ratings and an overall `Scores` dataclass; the renderer assembles the complete output document with severity icons, estimated-finding labels, Nielsen heuristic tags, and conditional sections for empty tiers.
+
+### add context_events, prompts, and prompt_builder modules
+Introduces the three modules responsible for assembling the structured user message sent to Claude: `context_events.py` (a `ContextEvent` dataclass with XML serialization that renders dicts as YAML and strings verbatim), `prompts.py` (the `SYSTEM_PROMPT` constant), and `prompt_builder.py` (`build_thread()` which produces the canonical ordered event list for every analysis call).
+
+### inject axe_unavailable event when axe_result=None and source_type=url
+Fixes a missing branch in `build_thread()`: when axe-core was attempted on a URL source but returned no result (`axe_result=None`), the function was silently omitting the axe block instead of injecting an `axe_unavailable` event. Claude now receives an explicit estimated-mode instruction in this scenario, preventing silent degradation to visual-only analysis.
+
+### pipeline artifacts for spec-05 context events and prompt assembly
+Records the implementation plan, audit retro, working log, and fixer log for the context events and prompt assembly pipeline run.
 
 ## v0.4.0 — 2026-04-15
 
