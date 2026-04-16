@@ -20,14 +20,11 @@ playwright install chromium  # required for URL-based axe-core checks
 ### CLI
 
 ```bash
-# Analyze a local screenshot
-uxiq analyze path/to/screenshot.png --app-type web_dashboard
-
-# Analyze a live URL (also runs axe-core accessibility checks)
-uxiq analyze https://example.com --app-type landing_page
+# Analyze a live URL
+uxiq analyze https://example.com --app-type web_dashboard
 
 # Save report to a file
-uxiq analyze screenshot.png --app-type forms -o report.md
+uxiq analyze https://example.com --app-type landing_page -o report.md
 
 # List valid app types
 uxiq list-app-types
@@ -35,13 +32,18 @@ uxiq list-app-types
 
 **Valid app types:** `web_dashboard`, `landing_page`, `onboarding_flow`, `forms`
 
+> **Note:** Only URLs are accepted as input. Local file paths and base64 strings are not supported.
+
 ### Python API
 
 ```python
 from ui_analyzer import analyze_ui_screenshot
 
-report = analyze_ui_screenshot("path/to/screenshot.png", "web_dashboard")
+report = analyze_ui_screenshot("https://example.com", "web_dashboard")
 print(report)  # Markdown string
+
+# Skip the verification pass
+report = analyze_ui_screenshot("https://example.com", "web_dashboard", verify=False)
 ```
 
 ### As a Claude Tool
@@ -64,7 +66,9 @@ The audit is structured across four tiers:
 
 Each tier receives a star rating; the report also includes an overall score and actionable recommendations.
 
-For URL sources, [axe-core](https://github.com/dequelabs/axe-core) accessibility checks are run via Playwright and fed into the audit as additional context.
+For each analysis, axe-core accessibility checks and interactive DOM extraction are run via Playwright and fed into the audit as additional context. A second verification pass reviews the primary audit output by default — this can be disabled with `verify=False` at roughly 10–15% additional cost.
+
+A per-run debug file is written to `runs/` after each analysis.
 
 ## Development
 
