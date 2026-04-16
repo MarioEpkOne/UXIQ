@@ -524,3 +524,95 @@ def test_progress_elapsed_is_non_negative(mocker):
         elapsed = call[1][2]  # third positional arg
         assert elapsed >= 0.0
 
+
+# ---------------------------------------------------------------------------
+# Tests for _is_image_url (Fix Group 1, D1/D2)
+# ---------------------------------------------------------------------------
+
+def test_is_image_url_detects_common_extensions():
+    """Known image extensions (.png, .jpg, .gif, .webp, .svg, .ico) → True."""
+    from ui_analyzer.handler import _is_image_url
+    assert _is_image_url("https://example.com/image.png") is True
+    assert _is_image_url("https://example.com/photo.jpg") is True
+    assert _is_image_url("https://example.com/photo.jpeg") is True
+    assert _is_image_url("https://example.com/anim.gif") is True
+    assert _is_image_url("https://example.com/banner.webp") is True
+    assert _is_image_url("https://example.com/logo.svg") is True
+    assert _is_image_url("https://example.com/favicon.ico") is True
+
+
+def test_is_image_url_uppercase_extension():
+    """Uppercase extension (.PNG) → True (case-insensitive)."""
+    from ui_analyzer.handler import _is_image_url
+    assert _is_image_url("https://example.com/image.PNG") is True
+
+
+def test_is_image_url_extension_before_query_string():
+    """.png before query string → True (path check ignores query)."""
+    from ui_analyzer.handler import _is_image_url
+    assert _is_image_url("https://example.com/img.png?v=2&token=abc") is True
+
+
+def test_is_image_url_path_segment_with_extension_word():
+    """Path ending in '-editor' (not '.png') → False even if 'png' appears mid-path."""
+    from ui_analyzer.handler import _is_image_url
+    assert _is_image_url("https://app.example.com/png-editor") is False
+
+
+def test_is_image_url_regular_page():
+    """Dashboard URL with no image extension → False."""
+    from ui_analyzer.handler import _is_image_url
+    assert _is_image_url("https://app.example.com/dashboard") is False
+
+
+# ---------------------------------------------------------------------------
+# Tests for _check_ssrf (Fix Group 1, D4/D5/D6)
+# ---------------------------------------------------------------------------
+
+def test_check_ssrf_loopback_raises(mocker):
+    """Hostname resolving to 127.0.0.1 → UIAnalyzerError."""
+    from ui_analyzer.handler import _check_ssrf
+    mocker.patch("ui_analyzer.handler.socket.gethostbyname", return_value="127.0.0.1")
+
+    with pytest.raises(UIAnalyzerError, match="blocked"):
+        _check_ssrf("https://internal.example.com/page")
+
+
+def test_check_ssrf_private_network_raises(mocker):
+    """Hostname resolving to 10.0.0.5 (RFC-1918) → UIAnalyzerError."""
+    from ui_analyzer.handler import _check_ssrf
+    mocker.patch("ui_analyzer.handler.socket.gethostbyname", return_value="10.0.0.5")
+
+    with pytest.raises(UIAnalyzerError, match="blocked"):
+        _check_ssrf("https://corp.example.com/api")
+
+
+def test_check_ssrf_imds_raises(mocker):
+    """Hostname resolving to 169.254.169.254 (AWS IMDS) → UIAnalyzerError."""
+    from ui_analyzer.handler import _check_ssrf
+    mocker.patch("ui_analyzer.handler.socket.gethostbyname", return_value="169.254.169.254")
+
+    with pytest.raises(UIAnalyzerError, match="blocked"):
+        _check_ssrf("https://metadata.internal/latest")
+
+
+def test_check_ssrf_dns_failure_raises(mocker):
+    """DNS resolution failure → UIAnalyzerError with 'Cannot resolve hostname'."""
+    import socket as _socket
+    from ui_analyzer.handler import _check_ssrf
+    mocker.patch(
+        "ui_analyzer.handler.socket.gethostbyname",
+        side_effect=_socket.gaierror("Name or service not known"),
+    )
+
+    with pytest.raises(UIAnalyzerError, match="Cannot resolve hostname"):
+        _check_ssrf("https://nonexistent.invalid/page")
+
+
+def test_check_ssrf_public_ip_does_not_raise(mocker):
+    """Hostname resolving to a public IP → no error raised."""
+    from ui_analyzer.handler import _check_ssrf
+    mocker.patch("ui_analyzer.handler.socket.gethostbyname", return_value="93.184.216.34")
+
+    # Should not raise
+    _check_ssrf("https://example.com/page")

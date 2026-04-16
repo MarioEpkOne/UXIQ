@@ -13,14 +13,15 @@ No shared browser state with image_source.resolve().
 from __future__ import annotations
 
 import logging
+import pathlib
 from dataclasses import dataclass, field
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 from playwright.sync_api import sync_playwright
 
-AXE_CDN_URL = (
-    "https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.9.1/axe.min.js"
-)
+from ui_analyzer.utils import safe_log_url
+
+_AXE_JS = (pathlib.Path(__file__).parent / "vendor" / "axe.min.js").read_text(encoding="utf-8")
 AXE_TIMEOUT_MS = 10_000  # 10 seconds for axe.run()
 
 # axe-core rule ID → WCAG criterion mapping (only the 4 criteria extracted)
@@ -29,6 +30,7 @@ _RULE_TO_CRITERION: dict[str, str] = {
     "non-text-contrast": "1.4.11",
     "target-size": "2.5.8",
     "color-not-used-as-sole-meaning": "1.4.1",
+    "focus-visible": "2.4.7",
 }
 
 # Supported criteria set (used to decide what to include in findings)
@@ -107,13 +109,13 @@ def run_axe(url: str) -> AxeCoreResult | AxeFailure:
             try:
                 page.goto(url, timeout=30_000, wait_until="networkidle")
             except PlaywrightTimeout:
-                logger.warning("axe-core: page load timed out for %s", url)
+                logger.warning("axe-core: page load timed out for %s", safe_log_url(url))
                 browser.close()
                 return AxeFailure(reason="axe-core page load timed out")
 
-            # --- 2. Inject axe-core from CDN ---
+            # --- 2. Inject axe-core from local vendor bundle ---
             try:
-                page.add_script_tag(url=AXE_CDN_URL)
+                page.add_script_tag(content=_AXE_JS)
             except Exception as e:
                 logger.warning("axe-core: script injection failed: %s", e)
                 browser.close()
@@ -127,7 +129,7 @@ def run_axe(url: str) -> AxeCoreResult | AxeFailure:
                             axe.run(document, {
                                 runOnly: {
                                     type: 'tag',
-                                    values: ['wcag2a', 'wcag2aa', 'wcag21aa']
+                                    values: ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']
                                 }
                             }),
                             new Promise((_, reject) => setTimeout(
@@ -170,9 +172,14 @@ def _parse_axe_result(raw: dict) -> AxeCoreResult:
     """
     violations_raw: list[dict] = raw.get("violations", [])
     passes_raw: list[dict] = raw.get("passes", [])
+    inapplicable_raw: list[dict] = raw.get("inapplicable", [])
 
     # Build a set of rule IDs that appear in passes (for quick lookup)
     passing_rules: set[str] = {item["id"] for item in passes_raw}
+
+    # inapplicable rules are treated as PASS — "not applicable" means no violations possible
+    for item in inapplicable_raw:
+        passing_rules.add(item["id"])
 
     # Build a mapping criterion → list[AxeViolation] from violations
     criterion_violations: dict[str, list[AxeViolation]] = {}

@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 from playwright.sync_api import sync_playwright
 
+from ui_analyzer.utils import safe_log_url
+
 logger = logging.getLogger(__name__)
 
 _JS_SELECTOR = """
@@ -70,7 +72,7 @@ def extract_dom(url: str, max_elements: int = 300) -> DomElements | DomFailure:
             try:
                 page.goto(url, timeout=30_000, wait_until="networkidle")
             except PlaywrightTimeout:
-                logger.warning("dom_extractor: page load timed out for %s", url)
+                logger.warning("dom_extractor: page load timed out for %s", safe_log_url(url))
                 browser.close()
                 return DomFailure(reason="Playwright timed out after 30s")
 

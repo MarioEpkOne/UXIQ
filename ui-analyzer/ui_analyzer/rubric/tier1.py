@@ -46,7 +46,11 @@ TIER1_DEFINITION = {
             "id": "wcag_2_4_7",
             "criterion": "2.4.7",
             "description": "Focus indicators",
-            "threshold": "flag only if focus state is visible in screenshot",
+            "threshold": (
+                "Evaluated by axe-core for URL inputs. "
+                "For screenshot-only inputs where axe data is absent, "
+                "omit this check — do not generate a finding."
+            ),
         },
     ],
 }

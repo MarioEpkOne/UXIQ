@@ -29,3 +29,8 @@ dev = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "--disable-socket"
+
+[tool.hatch.build.targets.wheel]
+include = [
+    "ui_analyzer/**",
+]

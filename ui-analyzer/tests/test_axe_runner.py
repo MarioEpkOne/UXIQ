@@ -134,3 +134,129 @@ def test_run_axe_success_returns_axe_core_result(mocker):
 
     assert isinstance(result, AxeCoreResult)
     assert result.findings == []
+
+
+# ---------------------------------------------------------------------------
+# Tests for inapplicable-as-PASS (Fix Group 4C)
+# ---------------------------------------------------------------------------
+
+def test_parse_axe_result_inapplicable_added_to_passing_rules():
+    """inapplicable rule in _RULE_TO_CRITERION → appears as PASS in findings."""
+    from ui_analyzer.axe_runner import _parse_axe_result
+
+    raw = {
+        "violations": [],
+        "passes": [],
+        "inapplicable": [{"id": "color-contrast"}],
+    }
+    result = _parse_axe_result(raw)
+    criterion_results = {f.criterion: f.result for f in result.findings}
+    assert criterion_results.get("1.4.3") == "PASS"
+
+
+def test_parse_axe_result_inapplicable_unknown_rule_ignored():
+    """inapplicable rule not in _RULE_TO_CRITERION → silently ignored."""
+    from ui_analyzer.axe_runner import _parse_axe_result
+
+    raw = {
+        "violations": [],
+        "passes": [],
+        "inapplicable": [{"id": "aria-required-attr"}],  # not in _RULE_TO_CRITERION
+    }
+    result = _parse_axe_result(raw)
+    # No findings from unknown rules
+    assert result.findings == []
+
+
+# ---------------------------------------------------------------------------
+# Tests for wcag22aa tag (Fix Group 4A)
+# ---------------------------------------------------------------------------
+
+def test_run_axe_js_contains_wcag22aa_tag(mocker):
+    """The JS string passed to page.evaluate contains 'wcag22aa'."""
+    mock_cm = _make_pw_context(axe_raw={"violations": [], "passes": []})
+    mocker.patch("ui_analyzer.axe_runner.sync_playwright", return_value=mock_cm)
+
+    run_axe("https://example.com")
+
+    # Capture the JS string passed to page.evaluate
+    mock_page = mock_cm.__enter__.return_value.chromium.launch.return_value.new_context.return_value.new_page.return_value
+    js_arg = mock_page.evaluate.call_args[0][0]
+    assert "wcag22aa" in js_arg
+
+
+# ---------------------------------------------------------------------------
+# Tests for focus-visible mapping (Fix Group 4B)
+# ---------------------------------------------------------------------------
+
+def test_focus_visible_in_rule_to_criterion_maps_to_2_4_7():
+    """focus-visible entry in _RULE_TO_CRITERION maps to criterion '2.4.7'."""
+    from ui_analyzer.axe_runner import _RULE_TO_CRITERION
+    assert _RULE_TO_CRITERION.get("focus-visible") == "2.4.7"
+
+
+def test_parse_axe_result_focus_visible_inapplicable_gives_pass():
+    """focus-visible in inapplicable → PASS finding for criterion 2.4.7."""
+    from ui_analyzer.axe_runner import _parse_axe_result
+
+    raw = {
+        "violations": [],
+        "passes": [],
+        "inapplicable": [{"id": "focus-visible"}],
+    }
+    result = _parse_axe_result(raw)
+    criterion_results = {f.criterion: f.result for f in result.findings}
+    assert criterion_results.get("2.4.7") == "PASS"
+
+
+def test_parse_axe_result_focus_visible_violation_gives_fail():
+    """focus-visible in violations → FAIL finding for criterion 2.4.7."""
+    from ui_analyzer.axe_runner import _parse_axe_result
+
+    raw = {
+        "violations": [
+            {
+                "id": "focus-visible",
+                "description": "Elements must have visible focus",
+                "nodes": [{"target": [".nav-link"], "any": []}],
+            }
+        ],
+        "passes": [],
+        "inapplicable": [],
+    }
+    result = _parse_axe_result(raw)
+    criterion_results = {f.criterion: f.result for f in result.findings}
+    assert criterion_results.get("2.4.7") == "FAIL"
+
+
+def test_parse_axe_result_focus_visible_passes_gives_pass():
+    """focus-visible in passes → PASS finding for criterion 2.4.7."""
+    from ui_analyzer.axe_runner import _parse_axe_result
+
+    raw = {
+        "violations": [],
+        "passes": [{"id": "focus-visible"}],
+        "inapplicable": [],
+    }
+    result = _parse_axe_result(raw)
+    criterion_results = {f.criterion: f.result for f in result.findings}
+    assert criterion_results.get("2.4.7") == "PASS"
+
+
+# ---------------------------------------------------------------------------
+# Tests for vendor file (Fix Group 2)
+# ---------------------------------------------------------------------------
+
+def test_vendor_axe_min_js_exists_and_is_non_empty():
+    """ui_analyzer/vendor/axe.min.js exists and has content."""
+    import pathlib
+    vendor_path = pathlib.Path(__file__).parent.parent / "ui_analyzer" / "vendor" / "axe.min.js"
+    assert vendor_path.exists(), f"vendor file missing at {vendor_path}"
+    assert vendor_path.stat().st_size > 0, "vendor file is empty"
+
+
+def test_module_level_axe_js_is_non_empty_string():
+    """Module-level _AXE_JS constant is a non-empty string."""
+    from ui_analyzer.axe_runner import _AXE_JS
+    assert isinstance(_AXE_JS, str)
+    assert len(_AXE_JS) > 0

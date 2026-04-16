@@ -10,8 +10,11 @@ Never raises on axe-core failure, malformed XML, or partial Claude output.
 from __future__ import annotations
 
 import base64
+import ipaddress
 import logging
 import os
+import socket
+from urllib.parse import urlparse
 
 import anthropic
 from pydantic import BaseModel, field_validator
@@ -25,12 +28,62 @@ from ui_analyzer.image_source import resolve
 from ui_analyzer.prompt_builder import build_thread
 from ui_analyzer.prompts import SYSTEM_PROMPT
 from ui_analyzer.report_renderer import render
+from ui_analyzer.utils import safe_log_url
 from ui_analyzer.verifier import run_verification
 from ui_analyzer.run_writer import RunUsage, write_run
 from ui_analyzer.scorer import compute
 from ui_analyzer.xml_parser import parse
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# URL guard helpers
+# ---------------------------------------------------------------------------
+
+_IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico"})
+
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+]
+
+
+def _is_image_url(url: str) -> bool:
+    """Return True if the URL path ends with a known image file extension.
+
+    Comparison is case-insensitive. Only the path component is checked —
+    query strings and fragments are ignored.
+    """
+    path = urlparse(url).path.lower()
+    return any(path.endswith(ext) for ext in _IMAGE_EXTENSIONS)
+
+
+def _check_ssrf(url: str) -> None:
+    """Resolve the URL hostname and raise UIAnalyzerError if it maps to a blocked network.
+
+    Blocked networks: loopback, private RFC-1918, link-local (including
+    169.254.169.254 IMDS), and IPv6 loopback/link-local.
+
+    Raises UIAnalyzerError on SSRF match, unresolvable hostname, or missing hostname.
+    """
+    hostname = urlparse(url).hostname
+    if not hostname:
+        raise UIAnalyzerError(f"Cannot resolve hostname for URL: {url}")
+    try:
+        ip = ipaddress.ip_address(socket.gethostbyname(hostname))
+    except (socket.gaierror, ValueError) as e:
+        raise UIAnalyzerError(f"Cannot resolve hostname '{hostname}': {e}")
+    if any(ip in net for net in _BLOCKED_NETWORKS):
+        raise UIAnalyzerError(
+            f"URL resolves to a blocked address ({ip}). "
+            "Internal/loopback/link-local URLs are not permitted."
+        )
 
 
 class ProgressCallback(Protocol):
@@ -121,6 +174,12 @@ def analyze_ui_screenshot(
     if not os.getenv("UXIQ_ANTHROPIC_API_KEY"):
         raise UIAnalyzerError("UXIQ_ANTHROPIC_API_KEY environment variable is not set.")
 
+    # 0b. SSRF guard — raises UIAnalyzerError for internal/loopback/link-local addresses
+    _check_ssrf(req.image_source)
+
+    # 0c. Image-file URL guard — soft failure; disables axe+DOM for image URLs
+    _url_is_image = _is_image_url(req.image_source)
+
     # 2. Resolve image (raises UIAnalyzerError on hard failure)
     if progress is not None:
         progress.stage_start("image", "Loading image...")
@@ -129,16 +188,26 @@ def analyze_ui_screenshot(
     if progress is not None:
         progress.stage_end("image", "Image loaded", _time.monotonic() - _t0)
 
-    # 3. Run axe-core (always runs — URL-only guarantee)
+    # 3. Run axe-core (skipped for image URLs — axe requires a live webpage)
     if progress is not None:
         progress.stage_start("axe", "Running accessibility checks...")
     _t0 = _time.monotonic()
-    axe_result: AxeCoreResult | AxeFailure | None = run_axe(req.image_source)
+    if _url_is_image:
+        axe_result: AxeCoreResult | AxeFailure = AxeFailure(
+            reason="URL points to an image file, not a webpage — axe-core requires a live page"
+        )
+    else:
+        axe_result = run_axe(req.image_source)
     if isinstance(axe_result, AxeFailure):
         logger.warning("axe-core failed: %s — continuing in estimated mode", axe_result.reason)
 
-    # 3b. Extract DOM elements (always runs — URL-only guarantee)
-    dom_result: DomElements | DomFailure = extract_dom(req.image_source)
+    # 3b. Extract DOM elements (skipped for image URLs)
+    if _url_is_image:
+        dom_result: DomElements | DomFailure = DomFailure(
+            reason="URL points to an image file, not a webpage"
+        )
+    else:
+        dom_result = extract_dom(req.image_source)
     if isinstance(dom_result, DomFailure):
         logger.warning("DOM extraction failed: %s — continuing without DOM data", dom_result.reason)
 
@@ -233,6 +302,13 @@ def analyze_ui_screenshot(
 
     # 9. Parse Claude's XML response
     audit_report = parse(raw_text)
+
+    # 9a. Warn if inventory is empty — verifier will be instructed to populate it
+    if not audit_report.inventory:
+        logger.warning(
+            "Primary audit produced no inventory for %s — verifier will be instructed to populate it.",
+            safe_log_url(req.image_source),
+        )
 
     # 9.5. Verification pass — second Claude call that peer-reviews the primary output
     verifier_usage = None
