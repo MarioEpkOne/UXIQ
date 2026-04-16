@@ -62,7 +62,7 @@ def run_verification(
     except anthropic.RateLimitError as exc:
         logger.warning("Verifier call rate-limited: %s — skipping verification", exc)
         result = copy.deepcopy(audit_report)
-        result.parse_warnings.append("Verification skipped: API timeout")
+        result.parse_warnings.append("Verification skipped: API rate limit")
         return result
     except Exception as exc:
         logger.warning("Verifier call failed unexpectedly: %s — skipping verification", exc)

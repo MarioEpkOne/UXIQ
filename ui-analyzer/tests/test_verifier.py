@@ -135,7 +135,7 @@ def test_verifier_rate_limit_soft_fail():
         audit_report=original,
     )
 
-    assert any("API timeout" in w for w in result.parse_warnings)
+    assert any("API rate limit" in w for w in result.parse_warnings)
 
 
 # ---------------------------------------------------------------------------
