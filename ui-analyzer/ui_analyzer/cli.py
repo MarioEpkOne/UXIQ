@@ -32,7 +32,7 @@ def _cmd_analyze(args: argparse.Namespace) -> None:
     try:
         report = analyze_ui_screenshot(args.image_source, args.app_type)
     except ValidationError as exc:
-        # Invalid app_type value (already caught by argparse choices, but belt+suspenders)
+        # Invalid app_type value — rejected by pydantic before any API call
         app_type_val = args.app_type
         print(
             f"Invalid app-type: {app_type_val!r}. "
@@ -94,7 +94,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--app-type", "-t",
         dest="app_type",
         required=True,
-        choices=VALID_APP_TYPES,
         metavar="APP_TYPE",
         help=f"Type of app being audited. One of: {', '.join(VALID_APP_TYPES)}",
     )

@@ -72,12 +72,12 @@ def test_analyze_missing_app_type_exits_2():
 # uxiq analyze — invalid --app-type (argparse choices error)
 # ---------------------------------------------------------------------------
 
-def test_analyze_invalid_app_type_exits_2_mentions_valid():
-    """uxiq analyze file.png --app-type badvalue → exit 2, stderr mentions valid choices."""
+def test_analyze_invalid_app_type_exits_1_mentions_valid():
+    """uxiq analyze file.png --app-type badvalue → exit 1, stderr has custom 'Invalid app-type' message."""
     result = _run("analyze", "file.png", "--app-type", "badvalue")
-    assert result.returncode == 2
-    # argparse prints "invalid choice: badvalue" with the valid choices list
-    assert "badvalue" in result.stderr or "invalid choice" in result.stderr
+    assert result.returncode == 1
+    assert "Invalid app-type" in result.stderr
+    assert "Valid:" in result.stderr
 
 
 # ---------------------------------------------------------------------------
@@ -179,9 +179,9 @@ def test_no_subcommand_exits_0_and_prints_help():
 # ---------------------------------------------------------------------------
 
 def test_list_app_types_works_without_api_key():
-    """uxiq list-app-types with no ANTHROPIC_API_KEY → exit 0 (env check is in handler)."""
+    """uxiq list-app-types with no UXIQ_ANTHROPIC_API_KEY → exit 0 (env check is in handler)."""
     env = os.environ.copy()
-    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("UXIQ_ANTHROPIC_API_KEY", None)
     result = subprocess.run(
         CLI_MODULE + ["list-app-types"],
         capture_output=True,
@@ -197,9 +197,9 @@ def test_list_app_types_works_without_api_key():
 # ---------------------------------------------------------------------------
 
 def test_version_works_without_api_key():
-    """uxiq --version with no ANTHROPIC_API_KEY → exit 0."""
+    """uxiq --version with no UXIQ_ANTHROPIC_API_KEY → exit 0."""
     env = os.environ.copy()
-    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("UXIQ_ANTHROPIC_API_KEY", None)
     result = subprocess.run(
         CLI_MODULE + ["--version"],
         capture_output=True,
