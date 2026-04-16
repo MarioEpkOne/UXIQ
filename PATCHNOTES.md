@@ -1,5 +1,13 @@
-<!-- last-commit: 22a22414e1b2ed3294e0c40052d18d2d99466450 -->
+<!-- last-commit: e3c98c143b8017d07c18c13aeb01387caf65ce7c -->
 # Patch Notes
+
+## v0.8.0 — 2026-04-16
+
+### add uxiq CLI entry point with analyze, list-app-types, and --version
+Introduces `ui_analyzer/cli.py` — a full `argparse`-based CLI registered as the `uxiq` script in `pyproject.toml`. Running `uxiq analyze <image> --app-type <type>` invokes the full audit pipeline and prints the Markdown report to stdout (or writes it to a file with `-o`). Two utility subcommands ship alongside it: `uxiq list-app-types` prints the four valid app-type identifiers, and `uxiq --version` prints the installed package version. As part of this change, the import-time API key guard is moved from `__init__.py` into `analyze_ui_screenshot()` so non-analyze commands work without `UXIQ_ANTHROPIC_API_KEY` set.
+
+### correct env var name and test suite regressions from fix loops
+Corrects two audit-loop regressions: `handler.py` was checking `ANTHROPIC_API_KEY` instead of the correct `UXIQ_ANTHROPIC_API_KEY`, and the `cli.py` argparse `choices=` constraint caused invalid `--app-type` values to exit 2 instead of the spec-required exit 1 with a custom error message. Also adds an autouse `conftest.py` fixture that injects a dummy `UXIQ_ANTHROPIC_API_KEY` for all non-integration tests, restoring the 100-test baseline that was broken when the env guard moved to `handler.py`.
 
 ## v0.7.0 — 2026-04-16
 

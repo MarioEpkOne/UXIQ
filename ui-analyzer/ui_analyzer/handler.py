@@ -30,7 +30,7 @@ from ui_analyzer.xml_parser import parse
 logger = logging.getLogger(__name__)
 
 MODEL = "claude-sonnet-4-6"
-API_TIMEOUT_S = 60
+API_TIMEOUT_S = 180
 
 VALID_APP_TYPES = {"web_dashboard", "landing_page", "onboarding_flow", "forms"}
 
@@ -109,11 +109,11 @@ def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
     media_type = _media_type(req.image_source)
 
     # 7. Call Claude API
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(api_key=os.getenv("UXIQ_ANTHROPIC_API_KEY"))
     try:
         response = client.messages.create(
             model=MODEL,
-            max_tokens=4096,
+            max_tokens=8192,
             timeout=API_TIMEOUT_S,
             system=SYSTEM_PROMPT,
             messages=[
