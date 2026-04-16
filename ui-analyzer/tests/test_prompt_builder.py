@@ -59,13 +59,16 @@ def test_build_thread_axe_failure_url_mode():
 # ---------------------------------------------------------------------------
 
 def test_build_thread_file_mode():
-    """source_type='file', axe_result=None → no axe event, event[1].type == 'rubric_tier1'."""
+    """source_type='file', axe_result=None, dom_result=None →
+    no axe event, dom_unavailable injected, event[1].type == 'dom_unavailable',
+    event[2].type == 'rubric_tier1'."""
     events = _build(axe_result=None, source_type="file")
 
     types = [e.type for e in events]
     assert "axe_core_result" not in types
     assert "axe_unavailable" not in types
-    assert events[1].type == "rubric_tier1"
+    assert events[1].type == "dom_unavailable"
+    assert events[2].type == "rubric_tier1"
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +76,8 @@ def test_build_thread_file_mode():
 # ---------------------------------------------------------------------------
 
 def test_build_thread_canonical_order():
-    """With axe_result present, event order: analysis_request → axe_core_result → rubric_tier1
+    """With axe_result present and dom_result=None, event order:
+    analysis_request → axe_core_result → dom_unavailable → rubric_tier1
     → rubric_tier2 → rubric_tier3 → rubric_tier4 → output_schema."""
     events = _build(axe_result=AxeCoreResult(findings=[]), source_type="url")
 
@@ -81,6 +85,7 @@ def test_build_thread_canonical_order():
     expected = [
         "analysis_request",
         "axe_core_result",
+        "dom_unavailable",
         "rubric_tier1",
         "rubric_tier2",
         "rubric_tier3",
@@ -114,3 +119,82 @@ def test_system_prompt_structure():
     assert "structure" in SYSTEM_PROMPT
     assert "rubric" in SYSTEM_PROMPT
     assert "Do not compute numeric scores" in SYSTEM_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# DOM injection tests
+# ---------------------------------------------------------------------------
+
+from ui_analyzer.dom_extractor import DomElement, DomElements, DomFailure
+
+
+def test_build_thread_dom_elements_injected_at_position_3():
+    """DomElements result → event at position 2 (index) has type 'dom_elements'."""
+    from ui_analyzer.dom_extractor import DomElement, DomElements
+
+    dom_result = DomElements(elements=[
+        DomElement(tag="button", role="", text="Sign in", aria_label="", placeholder="", input_type=""),
+    ])
+    events = build_thread(
+        app_type="web_dashboard",
+        source_type="url",
+        image_source_value="https://example.com",
+        viewport_width=1280,
+        viewport_height=800,
+        axe_result=AxeCoreResult(findings=[]),
+        dom_result=dom_result,
+    )
+    types = [e.type for e in events]
+    assert types[2] == "dom_elements"
+    # Verify count attribute in serialized XML
+    assert 'count="1"' in events[2].data
+    assert 'tag="button"' in events[2].data
+    assert 'text="Sign in"' in events[2].data
+
+
+def test_build_thread_dom_failure_injects_dom_unavailable():
+    """DomFailure result → event at position 2 (index) has type 'dom_unavailable'."""
+    events = build_thread(
+        app_type="web_dashboard",
+        source_type="url",
+        image_source_value="https://example.com",
+        viewport_width=1280,
+        viewport_height=800,
+        axe_result=AxeCoreResult(findings=[]),
+        dom_result=DomFailure(reason="Playwright timed out after 30s"),
+    )
+    types = [e.type for e in events]
+    assert types[2] == "dom_unavailable"
+    assert "Playwright timed out after 30s" in events[2].data
+
+
+def test_build_thread_dom_none_injects_dom_unavailable():
+    """dom_result=None → event at position 2 (index) has type 'dom_unavailable'."""
+    events = build_thread(
+        app_type="web_dashboard",
+        source_type="url",
+        image_source_value="https://example.com",
+        viewport_width=1280,
+        viewport_height=800,
+        axe_result=AxeCoreResult(findings=[]),
+        dom_result=None,
+    )
+    types = [e.type for e in events]
+    assert types[2] == "dom_unavailable"
+
+
+def test_build_thread_dom_elements_count_zero():
+    """DomElements with empty list → dom_elements event with count="0" (not dom_unavailable)."""
+    events = build_thread(
+        app_type="web_dashboard",
+        source_type="url",
+        image_source_value="https://example.com",
+        viewport_width=1280,
+        viewport_height=800,
+        axe_result=None,
+        dom_result=DomElements(elements=[]),
+    )
+    types = [e.type for e in events]
+    assert "dom_elements" in types
+    dom_event = next(e for e in events if e.type == "dom_elements")
+    assert 'count="0"' in dom_event.data

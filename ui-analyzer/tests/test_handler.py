@@ -13,6 +13,7 @@ import pytest
 from pydantic import ValidationError
 
 from ui_analyzer.axe_runner import AxeCoreResult, AxeFailure
+from ui_analyzer.dom_extractor import DomElements, DomFailure
 from ui_analyzer.exceptions import UIAnalyzerError
 from ui_analyzer.handler import _media_type, _to_base64, analyze_ui_screenshot
 from ui_analyzer.image_source import ResolvedImage
@@ -76,14 +77,17 @@ def _make_claude_response(text: str) -> MagicMock:
 # Scenario 1: valid file path → returns str with all four tier section headers
 # ---------------------------------------------------------------------------
 
-def test_valid_file_path_returns_markdown_with_all_tiers(fixtures_dir, mocker):
-    """Valid file path → Markdown str containing all four tier section headers."""
-    file_path = f"{fixtures_dir}/dashboard_good.png"
+def test_valid_file_path_returns_markdown_with_all_tiers(mocker):
+    """Valid URL → Markdown str containing all four tier section headers."""
+    url = "https://example.com"
 
     mocker.patch(
         "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_file(),
+        return_value=_make_resolved_url(),
     )
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch(
         "ui_analyzer.handler.anthropic.Anthropic"
     )
@@ -91,7 +95,7 @@ def test_valid_file_path_returns_markdown_with_all_tiers(fixtures_dir, mocker):
         MINIMAL_VALID_XML
     )
 
-    result = analyze_ui_screenshot(file_path, "web_dashboard")
+    result = analyze_ui_screenshot(url, "web_dashboard")
 
     assert isinstance(result, str)
     assert "## Tier 1" in result
@@ -116,6 +120,8 @@ def test_valid_url_axe_success_shows_authoritative(mocker):
         "ui_analyzer.handler.run_axe",
         return_value=AxeCoreResult(findings=[]),
     )
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch(
         "ui_analyzer.handler.anthropic.Anthropic"
     )
@@ -144,6 +150,8 @@ def test_axe_failure_returns_string_not_exception(mocker):
         "ui_analyzer.handler.run_axe",
         return_value=AxeFailure(reason="axe-core JS injection failed"),
     )
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch(
         "ui_analyzer.handler.anthropic.Anthropic"
     )
@@ -162,14 +170,17 @@ def test_axe_failure_returns_string_not_exception(mocker):
 # Scenario 4: malformed XML from Claude → returns str with warning, no exception
 # ---------------------------------------------------------------------------
 
-def test_malformed_xml_returns_string_with_warning(fixtures_dir, mocker):
+def test_malformed_xml_returns_string_with_warning(mocker):
     """Malformed XML from Claude → report str returned with parse warning block."""
-    file_path = f"{fixtures_dir}/form.png"
+    url = "https://example.com"
 
     mocker.patch(
         "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_file(),
+        return_value=_make_resolved_url(),
     )
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch(
         "ui_analyzer.handler.anthropic.Anthropic"
     )
@@ -177,7 +188,7 @@ def test_malformed_xml_returns_string_with_warning(fixtures_dir, mocker):
         MALFORMED_XML
     )
 
-    result = analyze_ui_screenshot(file_path, "onboarding_flow")
+    result = analyze_ui_screenshot(url, "onboarding_flow")
 
     assert isinstance(result, str)
     # render() adds a warning block when parse_warnings is non-empty
@@ -188,16 +199,18 @@ def test_malformed_xml_returns_string_with_warning(fixtures_dir, mocker):
 # Scenario 5: API timeout (mocked) → raises UIAnalyzerError
 # ---------------------------------------------------------------------------
 
-def test_api_timeout_raises_ui_analyzer_error(fixtures_dir, mocker):
+def test_api_timeout_raises_ui_analyzer_error(mocker):
     """APITimeoutError from Claude → UIAnalyzerError raised."""
     import anthropic as _anthropic
 
-    file_path = f"{fixtures_dir}/dashboard_bad.png"
+    url = "https://example.com"
 
     mocker.patch(
         "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_file(),
+        return_value=_make_resolved_url(),
     )
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
     mock_create = mocker.patch(
         "ui_analyzer.handler.anthropic.Anthropic"
     )
@@ -206,23 +219,25 @@ def test_api_timeout_raises_ui_analyzer_error(fixtures_dir, mocker):
     )
 
     with pytest.raises(UIAnalyzerError, match="timed out"):
-        analyze_ui_screenshot(file_path, "web_dashboard")
+        analyze_ui_screenshot(url, "web_dashboard")
 
 
 # ---------------------------------------------------------------------------
 # Scenario 6: API rate limit (mocked) → raises UIAnalyzerError
 # ---------------------------------------------------------------------------
 
-def test_api_rate_limit_raises_ui_analyzer_error(fixtures_dir, mocker):
+def test_api_rate_limit_raises_ui_analyzer_error(mocker):
     """RateLimitError from Claude → UIAnalyzerError raised."""
     import anthropic as _anthropic
 
-    file_path = f"{fixtures_dir}/landing_page.png"
+    url = "https://example.com"
 
     mocker.patch(
         "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_file(),
+        return_value=_make_resolved_url(),
     )
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
     mock_create = mocker.patch(
         "ui_analyzer.handler.anthropic.Anthropic"
     )
@@ -231,7 +246,21 @@ def test_api_rate_limit_raises_ui_analyzer_error(fixtures_dir, mocker):
     )
 
     with pytest.raises(UIAnalyzerError, match="rate limit"):
-        analyze_ui_screenshot(file_path, "landing_page")
+        analyze_ui_screenshot(url, "landing_page")
+
+
+# ---------------------------------------------------------------------------
+# Scenario: file path input → pydantic.ValidationError before any IO
+# ---------------------------------------------------------------------------
+
+def test_file_path_raises_validation_error(mocker):
+    """File path input → pydantic.ValidationError raised; resolve() never called."""
+    mock_resolve = mocker.patch("ui_analyzer.handler.resolve")
+
+    with pytest.raises(ValidationError, match="must be a URL"):
+        analyze_ui_screenshot("/some/path/screenshot.png", "web_dashboard")
+
+    mock_resolve.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +272,7 @@ def test_invalid_app_type_raises_validation_error_before_any_io(mocker):
     mock_resolve = mocker.patch("ui_analyzer.handler.resolve")
 
     with pytest.raises(ValidationError):
-        analyze_ui_screenshot("/some/path.png", "not_a_valid_type")
+        analyze_ui_screenshot("https://example.com", "not_a_valid_type")
 
     mock_resolve.assert_not_called()
 
@@ -282,7 +311,7 @@ def test_media_type_png_and_default():
 # Scenario (unit): non-UI preamble is passed through without raising
 # ---------------------------------------------------------------------------
 
-def test_handler_non_ui_preamble_passes_through(fixtures_dir, mocker):
+def test_handler_non_ui_preamble_passes_through(mocker):
     """Claude response with non-UI preamble followed by valid XML → str returned, no exception."""
     NON_UI_PREAMBLE_XML = (
         "⚠️ The provided image does not appear to be a web UI screenshot.\n\n"
@@ -291,14 +320,17 @@ def test_handler_non_ui_preamble_passes_through(fixtures_dir, mocker):
 
     mocker.patch(
         "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_file(),
+        return_value=_make_resolved_url(),
     )
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_create.return_value.messages.create.return_value = _make_claude_response(
         NON_UI_PREAMBLE_XML
     )
 
-    result = analyze_ui_screenshot(f"{fixtures_dir}/dashboard_good.png", "web_dashboard")
+    result = analyze_ui_screenshot("https://example.com", "web_dashboard")
 
     assert isinstance(result, str)
     assert "⚠️ The provided image does not appear to be a web UI" in result
@@ -309,18 +341,21 @@ def test_handler_non_ui_preamble_passes_through(fixtures_dir, mocker):
 # Unit: no preamble → output starts with "# UI Analysis Report" (no leading blank lines)
 # ---------------------------------------------------------------------------
 
-def test_handler_no_preamble_output_unchanged(fixtures_dir, mocker):
+def test_handler_no_preamble_output_unchanged(mocker):
     """Response starting directly with <audit_report> → output is unchanged (no extra whitespace prepended)."""
     mocker.patch(
         "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_file(),
+        return_value=_make_resolved_url(),
     )
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_create.return_value.messages.create.return_value = _make_claude_response(
         MINIMAL_VALID_XML
     )
 
-    result = analyze_ui_screenshot(f"{fixtures_dir}/dashboard_good.png", "web_dashboard")
+    result = analyze_ui_screenshot("https://example.com", "web_dashboard")
 
     assert result.startswith("# UI Analysis Report")
 
@@ -329,20 +364,23 @@ def test_handler_no_preamble_output_unchanged(fixtures_dir, mocker):
 # Unit: whitespace-only preamble → suppressed, output starts with "# UI Analysis Report"
 # ---------------------------------------------------------------------------
 
-def test_handler_whitespace_only_preamble_not_prepended(fixtures_dir, mocker):
+def test_handler_whitespace_only_preamble_not_prepended(mocker):
     """Response with whitespace-only text before <audit_report> → preamble suppressed."""
     WHITESPACE_PREAMBLE_XML = "   \n\n" + MINIMAL_VALID_XML
 
     mocker.patch(
         "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_file(),
+        return_value=_make_resolved_url(),
     )
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_create.return_value.messages.create.return_value = _make_claude_response(
         WHITESPACE_PREAMBLE_XML
     )
 
-    result = analyze_ui_screenshot(f"{fixtures_dir}/dashboard_good.png", "web_dashboard")
+    result = analyze_ui_screenshot("https://example.com", "web_dashboard")
 
     assert result.startswith("# UI Analysis Report")
 
@@ -351,20 +389,23 @@ def test_handler_whitespace_only_preamble_not_prepended(fixtures_dir, mocker):
 # Unit: no <audit_report> at all → entire response is preamble; malformed warning also shown
 # ---------------------------------------------------------------------------
 
-def test_handler_no_xml_preamble_shown(fixtures_dir, mocker):
+def test_handler_no_xml_preamble_shown(mocker):
     """Response with no <audit_report> tag → entire response used as preamble; malformed warning present."""
     NO_XML_RESPONSE = "I cannot analyze this image."
 
     mocker.patch(
         "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_file(),
+        return_value=_make_resolved_url(),
     )
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_create.return_value.messages.create.return_value = _make_claude_response(
         NO_XML_RESPONSE
     )
 
-    result = analyze_ui_screenshot(f"{fixtures_dir}/dashboard_good.png", "web_dashboard")
+    result = analyze_ui_screenshot("https://example.com", "web_dashboard")
 
     assert result.startswith("I cannot analyze this image.")
     assert "⚠️" in result or "malformed" in result.lower() or "warning" in result.lower()
@@ -376,12 +417,9 @@ def test_handler_no_xml_preamble_shown(fixtures_dir, mocker):
 
 @pytest.mark.integration
 @skip_if_no_key
-def test_full_analysis_file_path(fixtures_dir):
-    """Integration: real API call with dashboard_good.png → all four tier headers present."""
-    import pathlib
-    result = analyze_ui_screenshot(
-        str(pathlib.Path(fixtures_dir) / "dashboard_good.png"), "web_dashboard"
-    )
+def test_full_analysis_url_web_dashboard():
+    """Integration: real URL analysis with web_dashboard → all four tier headers present."""
+    result = analyze_ui_screenshot("https://example.com", "web_dashboard")
     assert isinstance(result, str)
     assert "## Tier 1" in result
     assert "## Tier 2" in result
@@ -400,22 +438,16 @@ def test_full_analysis_url():
 
 @pytest.mark.integration
 @skip_if_no_key
-def test_non_ui_image(fixtures_dir):
-    """Integration: non-UI image → str returned, no exception."""
-    import pathlib
-    result = analyze_ui_screenshot(
-        str(pathlib.Path(fixtures_dir) / "not_a_ui.jpg"), "landing_page"
-    )
+def test_non_ui_url():
+    """Integration: non-UI URL → str returned, no exception."""
+    result = analyze_ui_screenshot("https://example.com", "landing_page")
     assert isinstance(result, str)  # Does not raise
 
 
 @pytest.mark.integration
 @skip_if_no_key
-def test_app_type_forms(fixtures_dir):
+def test_app_type_forms():
     """Integration: forms app_type → report header contains 'Tier 4 — Domain Patterns (forms)'."""
-    import pathlib
-    result = analyze_ui_screenshot(
-        str(pathlib.Path(fixtures_dir) / "form.png"), "forms"
-    )
+    result = analyze_ui_screenshot("https://example.com", "forms")
     assert isinstance(result, str)
     assert "## Tier 4 — Domain Patterns (forms)" in result

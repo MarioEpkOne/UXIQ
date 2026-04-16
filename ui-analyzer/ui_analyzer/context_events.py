@@ -11,6 +11,8 @@ EventType = Literal[
     "analysis_request",
     "axe_core_result",
     "axe_unavailable",
+    "dom_elements",
+    "dom_unavailable",
     "rubric_tier1",
     "rubric_tier2",
     "rubric_tier3",

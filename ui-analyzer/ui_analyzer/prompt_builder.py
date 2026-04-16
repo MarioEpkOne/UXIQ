@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Literal
 
 from ui_analyzer.axe_runner import AxeCoreResult, AxeFailure
+from ui_analyzer.dom_extractor import DomElements, DomFailure
 from ui_analyzer.context_events import ContextEvent
 from ui_analyzer.rubric import tier1, tier2, tier3, output_schema
 from ui_analyzer.rubric.tier4 import web_dashboard, landing_page, onboarding_flow, forms
@@ -23,6 +24,7 @@ def build_thread(
     viewport_width: int,
     viewport_height: int,
     axe_result: AxeCoreResult | AxeFailure | None,
+    dom_result: DomElements | DomFailure | None = None,
 ) -> list[ContextEvent]:
     """Assemble the ordered list of ContextEvents for this analysis call.
 
@@ -37,11 +39,13 @@ def build_thread(
         2. axe_core_result  — if axe_result is AxeCoreResult
            axe_unavailable  — if axe_result is AxeFailure or (axe_result is None and source_type == "url")
            (omitted entirely — if axe_result is None and source_type == "file")
-        3. rubric_tier1
-        4. rubric_tier2
-        5. rubric_tier3
-        6. rubric_tier4
-        7. output_schema
+        3. dom_elements     — if dom_result is DomElements (including empty list)
+           dom_unavailable  — if dom_result is DomFailure or dom_result is None
+        4. rubric_tier1
+        5. rubric_tier2
+        6. rubric_tier3
+        7. rubric_tier4
+        8. output_schema
     """
     events: list[ContextEvent] = []
 
@@ -81,7 +85,33 @@ def build_thread(
         }))
     # If axe_result is None and source_type == "file": omit axe block entirely
 
-    # 3–7. Rubric events
+    # 3. DOM elements block
+    if isinstance(dom_result, DomElements):
+        # Serialize elements as XML string for verbatim injection
+        element_lines = [
+            f'  <element tag="{el.tag}" role="{el.role}" text="{el.text}" '
+            f'aria_label="{el.aria_label}" placeholder="{el.placeholder}" '
+            f'input_type="{el.input_type}"/>'
+            for el in dom_result.elements
+        ]
+        dom_xml = (
+            f'<dom_elements count="{len(dom_result.elements)}">\n'
+            + "\n".join(element_lines)
+            + "\n</dom_elements>"
+        )
+        events.append(ContextEvent(type="dom_elements", data=dom_xml))
+    else:
+        # dom_result is DomFailure or None — inject dom_unavailable
+        reason = dom_result.reason if isinstance(dom_result, DomFailure) else "DOM extraction was not attempted"
+        dom_unavailable_xml = (
+            f"<dom_unavailable>\n"
+            f"  <reason>{reason}</reason>\n"
+            f"  <instruction>DOM element data is unavailable. Base your inventory on visual analysis of the screenshot alone.</instruction>\n"
+            f"</dom_unavailable>"
+        )
+        events.append(ContextEvent(type="dom_unavailable", data=dom_unavailable_xml))
+
+    # 4–8. Rubric events
     events.append(ContextEvent(type="rubric_tier1", data=tier1.TIER1_DEFINITION))
     events.append(ContextEvent(type="rubric_tier2", data=tier2.TIER2_DEFINITION))
     events.append(ContextEvent(type="rubric_tier3", data=tier3.TIER3_DEFINITION))

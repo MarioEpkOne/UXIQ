@@ -19,11 +19,13 @@ from typing import Literal
 
 from ui_analyzer.axe_runner import AxeCoreResult, AxeFailure, run_axe
 from ui_analyzer.context_events import thread_to_prompt
+from ui_analyzer.dom_extractor import DomElements, DomFailure, extract_dom
 from ui_analyzer.exceptions import UIAnalyzerError
 from ui_analyzer.image_source import resolve
 from ui_analyzer.prompt_builder import build_thread
 from ui_analyzer.prompts import SYSTEM_PROMPT
 from ui_analyzer.report_renderer import render
+from ui_analyzer.run_writer import write_run
 from ui_analyzer.scorer import compute
 from ui_analyzer.xml_parser import parse
 
@@ -44,6 +46,13 @@ class AnalyzeRequest(BaseModel):
     image_source: str
     app_type: Literal["web_dashboard", "landing_page", "onboarding_flow", "forms"]
 
+    @field_validator("image_source")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("image_source must be a URL (http:// or https://)")
+        return v
+
     @field_validator("app_type")
     @classmethod
     def validate_app_type(cls, v: str) -> str:
@@ -62,18 +71,20 @@ def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
     """Orchestrate a full UI analysis and return a Markdown report.
 
     Args:
-        image_source: A URL (https://...) or absolute file path to a screenshot.
+        image_source: A URL (http:// or https://) to a live page. File paths
+            are not accepted and will raise pydantic.ValidationError.
         app_type: One of "web_dashboard", "landing_page", "onboarding_flow", "forms".
 
     Returns:
         str — Markdown report. Always a string on soft failure (axe failure,
-        malformed XML). Never returns None.
+        DOM extraction failure, malformed XML). Never returns None.
+        A debug Markdown file is written to runs/ after each successful analysis.
 
     Raises:
-        pydantic.ValidationError: if image_source or app_type are invalid (before
-            any Playwright/API call).
-        UIAnalyzerError: on hard failure — URL 404/timeout/blank, file not found,
-            API timeout, or API rate limit.
+        pydantic.ValidationError: if image_source is not a URL, or app_type is
+            invalid (before any Playwright/API call).
+        UIAnalyzerError: on hard failure — URL 404/timeout/blank, API timeout,
+            or API rate limit.
     """
     # 0. Validate inputs (ValidationError propagates — not wrapped)
     req = AnalyzeRequest(image_source=image_source, app_type=app_type)
@@ -85,12 +96,15 @@ def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
     # 2. Resolve image (raises UIAnalyzerError on hard failure)
     resolved = resolve(req.image_source)
 
-    # 3. Run axe-core if URL; skip entirely if file
-    axe_result: AxeCoreResult | AxeFailure | None = None
-    if resolved.source_type == "url":
-        axe_result = run_axe(req.image_source)
-        if isinstance(axe_result, AxeFailure):
-            logger.warning("axe-core failed: %s — continuing in estimated mode", axe_result.reason)
+    # 3. Run axe-core (always runs — URL-only guarantee)
+    axe_result: AxeCoreResult | AxeFailure | None = run_axe(req.image_source)
+    if isinstance(axe_result, AxeFailure):
+        logger.warning("axe-core failed: %s — continuing in estimated mode", axe_result.reason)
+
+    # 3b. Extract DOM elements (always runs — URL-only guarantee)
+    dom_result: DomElements | DomFailure = extract_dom(req.image_source)
+    if isinstance(dom_result, DomFailure):
+        logger.warning("DOM extraction failed: %s — continuing without DOM data", dom_result.reason)
 
     # 4. Build context event thread
     events = build_thread(
@@ -100,6 +114,7 @@ def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
         viewport_width=resolved.width_px,
         viewport_height=resolved.height_px,
         axe_result=axe_result,
+        dom_result=dom_result,
     )
 
     # 5. Assemble user message text from events
@@ -170,6 +185,15 @@ def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
         image_source=req.image_source,
         axe_succeeded=axe_succeeded,
         model=MODEL,
+    )
+
+    # 12b. Write per-run debug file (soft failure — never raises)
+    write_run(
+        url=req.image_source,
+        app_type=req.app_type,
+        model=MODEL,
+        report=audit_report,
+        rendered_output=output,
     )
 
     # 13. Prepend preamble if present
