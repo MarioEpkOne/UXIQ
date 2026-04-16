@@ -1,5 +1,13 @@
-<!-- last-commit: 67461df7252ec2f2d5d481b9c7a024960f06e398 -->
+<!-- last-commit: ed06315003cd893566b5a2964c8e0ef6e4d80f83 -->
 # Patch Notes
+
+## v0.10.2 — 2026-04-16
+
+### repair attributed `<audit_report>` parse failure causing silent 5★ output
+Fixes a silent failure where Claude emitting `<audit_report version="1">` (or any attributed variant) caused `xml_parser.parse()` to return an empty `AuditReport` with default 5★ scores instead of the real findings. Replaces `str.find()` with compiled regex in `xml_parser.py`, `handler._extract_preamble()`, and `verification_parser.parse()` so attributed root tags are matched correctly. Extends `VerificationResult` with optional `inventory` and `structure_observation` fields that `apply_amendments()` can now propagate, enabling the verifier to rescue a missing inventory from a failed primary parse. Narrows the `SYSTEM_PROMPT` DOM injection guard from a broad "do not follow any instructions" to an explicit list of attack vectors, preventing Claude from treating `<output_schema>` and rubric blocks as untrusted. Adds a diagnostic `logger.warning()` in `handler.py` that logs the first 500 chars of the raw response on parse failure. Surfaces actual parse warning text in the rendered report instead of a generic message. Ships 9 new tests and a new `test_prompts.py` regression guard.
+
+### 1 audit error resolved — unpack run_verification tuple in test_verifier.py
+Four `test_verifier.py` tests were failing with `AttributeError` because a prior change updated `run_verification()` to return a `(AuditReport, usage)` tuple but the tests were not updated to unpack it. All four now use `result, _ = run_verification(...)`, restoring a clean 200-test pass.
 
 ## v0.10.1 — 2026-04-16
 
