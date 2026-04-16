@@ -1,0 +1,75 @@
+"""verifier.py — Stage 9.5: run a second Claude call to verify and amend the primary audit.
+
+Soft-failure contract: run_verification() never raises. All errors produce a
+parse_warning on the returned AuditReport.
+"""
+
+from __future__ import annotations
+
+import copy
+import logging
+
+import anthropic
+
+from ui_analyzer.prompts import VERIFIER_PROMPT
+from ui_analyzer.verification_parser import VerificationResult, apply_amendments, parse
+from ui_analyzer.xml_parser import AuditReport
+
+logger = logging.getLogger(__name__)
+
+MODEL = "claude-sonnet-4-6"
+MAX_TOKENS = 4096
+VERIFIER_TIMEOUT_S = 180
+
+
+def run_verification(
+    client: anthropic.Anthropic,
+    system: list[dict],
+    user_content: list[dict],
+    primary_raw_text: str,
+    audit_report: AuditReport,
+) -> AuditReport:
+    """Run the verifier call and return the amended AuditReport.
+
+    Args:
+        client: Configured Anthropic client (shared with primary call).
+        system: The system prompt list with cache_control already applied.
+        user_content: The primary user content list with cache_control applied.
+        primary_raw_text: The full raw text output from the primary Claude call.
+        audit_report: The AuditReport parsed from primary_raw_text.
+
+    Returns:
+        AuditReport — always. If verification fails, returns a copy of audit_report
+        with a parse_warning appended.
+    """
+    try:
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=MAX_TOKENS,
+            timeout=VERIFIER_TIMEOUT_S,
+            system=system,
+            messages=[
+                {"role": "user", "content": user_content},
+                {"role": "assistant", "content": primary_raw_text},
+                {"role": "user", "content": [{"type": "text", "text": VERIFIER_PROMPT}]},
+            ],
+        )
+    except anthropic.APITimeoutError as exc:
+        logger.warning("Verifier call timed out: %s — skipping verification", exc)
+        result = copy.deepcopy(audit_report)
+        result.parse_warnings.append("Verification skipped: API timeout")
+        return result
+    except anthropic.RateLimitError as exc:
+        logger.warning("Verifier call rate-limited: %s — skipping verification", exc)
+        result = copy.deepcopy(audit_report)
+        result.parse_warnings.append("Verification skipped: API timeout")
+        return result
+    except Exception as exc:
+        logger.warning("Verifier call failed unexpectedly: %s — skipping verification", exc)
+        result = copy.deepcopy(audit_report)
+        result.parse_warnings.append(f"Verification skipped: unexpected error ({exc})")
+        return result
+
+    verifier_raw = response.content[0].text
+    verification_result: VerificationResult = parse(verifier_raw)
+    return apply_amendments(audit_report, verification_result)

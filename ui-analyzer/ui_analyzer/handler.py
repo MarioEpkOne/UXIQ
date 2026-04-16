@@ -25,6 +25,7 @@ from ui_analyzer.image_source import resolve
 from ui_analyzer.prompt_builder import build_thread
 from ui_analyzer.prompts import SYSTEM_PROMPT
 from ui_analyzer.report_renderer import render
+from ui_analyzer.verifier import run_verification
 from ui_analyzer.run_writer import write_run
 from ui_analyzer.scorer import compute
 from ui_analyzer.xml_parser import parse
@@ -45,6 +46,7 @@ VALID_APP_TYPES = {"web_dashboard", "landing_page", "onboarding_flow", "forms"}
 class AnalyzeRequest(BaseModel):
     image_source: str
     app_type: Literal["web_dashboard", "landing_page", "onboarding_flow", "forms"]
+    verify: bool = True
 
     @field_validator("image_source")
     @classmethod
@@ -67,13 +69,16 @@ class AnalyzeRequest(BaseModel):
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
+def analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True) -> str:
     """Orchestrate a full UI analysis and return a Markdown report.
 
     Args:
         image_source: A URL (http:// or https://) to a live page. File paths
             are not accepted and will raise pydantic.ValidationError.
         app_type: One of "web_dashboard", "landing_page", "onboarding_flow", "forms".
+        verify: If True (default), run a second Claude pass to verify and amend
+            the primary audit findings. Set to False to skip verification and
+            reduce cost (saves ~10-15% of per-call token cost).
 
     Returns:
         str — Markdown report. Always a string on soft failure (axe failure,
@@ -87,7 +92,7 @@ def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
             or API rate limit.
     """
     # 0. Validate inputs (ValidationError propagates — not wrapped)
-    req = AnalyzeRequest(image_source=image_source, app_type=app_type)
+    req = AnalyzeRequest(image_source=image_source, app_type=app_type, verify=verify)
 
     # 1. Guard: API key must be set before any work begins
     if not os.getenv("UXIQ_ANTHROPIC_API_KEY"):
@@ -124,31 +129,43 @@ def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
     image_b64 = _to_base64(resolved.bytes)
     media_type = _media_type(req.image_source)
 
-    # 7. Call Claude API
+    # 7. Call Claude API (with prompt caching so the verifier call can reuse tokens cheaply)
     client = anthropic.Anthropic(api_key=os.getenv("UXIQ_ANTHROPIC_API_KEY"))
+
+    # Build cacheable system and user content structures
+    system_cacheable = [
+        {
+            "type": "text",
+            "text": SYSTEM_PROMPT,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+    user_content_cacheable = [
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": image_b64,
+            },
+        },
+        {
+            "type": "text",
+            "text": user_text,
+            "cache_control": {"type": "ephemeral"},
+        },
+    ]
+
     try:
         response = client.messages.create(
             model=MODEL,
             max_tokens=MAX_TOKENS,
             timeout=API_TIMEOUT_S,
-            system=SYSTEM_PROMPT,
+            system=system_cacheable,
             messages=[
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": media_type,
-                                "data": image_b64,
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": user_text,
-                        },
-                    ],
+                    "content": user_content_cacheable,
                 }
             ],
         )
@@ -170,6 +187,16 @@ def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
 
     # 9. Parse Claude's XML response
     audit_report = parse(raw_text)
+
+    # 9.5. Verification pass — second Claude call that peer-reviews the primary output
+    if req.verify:
+        audit_report = run_verification(
+            client=client,
+            system=system_cacheable,
+            user_content=user_content_cacheable,
+            primary_raw_text=raw_text,
+            audit_report=audit_report,
+        )
 
     # 10. Compute scores
     scores = compute(audit_report)

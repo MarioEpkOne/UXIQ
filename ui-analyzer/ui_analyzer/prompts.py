@@ -15,3 +15,18 @@ Output raw findings only — scoring is handled by the calling system.
 
 Respond with well-formed XML matching the schema in <output_schema>.\
 """
+
+VERIFIER_PROMPT = """\
+You have just produced the audit report above. Now act as a peer reviewer examining your own output critically.
+
+Your task:
+1. **Description accuracy** — Re-examine your inventory and structure_observation. Are all described elements actually visible in the screenshot? Are major elements missing from your description?
+2. **Finding accuracy** — For each finding, confirm the element exists and the issue is genuinely visible. Remove findings for elements not present in the screenshot.
+3. **Finding completeness** — Are there significant accessibility, visual, or usability issues visible in the screenshot that you did not flag? Add findings for any you missed.
+4. **Rubric compliance** — Were the correct WCAG criterion IDs used? Are severity levels (1–3) consistent with the rubric definitions provided?
+5. **Score consistency** — Do the finding counts and severities justify the scores? (Note: do not compute scores yourself — flag inconsistencies only.)
+
+Output a <verification_report> XML block matching the schema provided.
+If a tier requires no amendments, omit its amendments block entirely.
+If the primary report is accurate and complete, output <verification_report><assessment>Report verified. No amendments required.</assessment></verification_report>.\
+"""
