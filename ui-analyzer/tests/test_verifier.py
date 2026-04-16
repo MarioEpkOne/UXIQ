@@ -102,7 +102,7 @@ def test_verifier_timeout_soft_fail():
         ]
     )
 
-    result = run_verification(
+    result, _ = run_verification(
         client=client,
         system=[{"type": "text", "text": "sys"}],
         user_content=[{"type": "text", "text": "user"}],
@@ -127,7 +127,7 @@ def test_verifier_rate_limit_soft_fail():
 
     original = AuditReport()
 
-    result = run_verification(
+    result, _ = run_verification(
         client=client,
         system=[],
         user_content=[],
@@ -156,7 +156,7 @@ def test_verifier_applies_amendment():
         ]
     )
 
-    result = run_verification(
+    result, _ = run_verification(
         client=client,
         system=[],
         user_content=[],
@@ -185,7 +185,7 @@ def test_verifier_no_amendments_unchanged():
         ]
     )
 
-    result = run_verification(
+    result, _ = run_verification(
         client=client,
         system=[],
         user_content=[],
