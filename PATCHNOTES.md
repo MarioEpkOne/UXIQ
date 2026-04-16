@@ -1,5 +1,45 @@
-<!-- last-commit: 9017b68a31a3db062f41093a9808a3978653bcd2 -->
+<!-- last-commit: 67461df7252ec2f2d5d481b9c7a024960f06e398 -->
 # Patch Notes
+
+## v0.10.1 — 2026-04-16
+
+### axe/URL bug fixes — SSRF guard, image-URL detection, vendor axe, wcag22aa, inapplicable-as-PASS, safe log URLs
+A broad hardening pass on the axe-core and URL-handling layers. Adds an SSRF guard that blocks loopback, private, and link-local URLs before Playwright runs. Detects image-file URLs early and returns a clean failure rather than attempting accessibility checks on a static asset. Vendors axe-core 4.9.1 locally (eliminating the CDN dependency), upgrades the ruleset to `wcag22aa`, maps `focus-visible` to WCAG 2.4.7, and treats `inapplicable` axe results as PASS so Claude doesn't re-estimate criteria the page genuinely doesn't apply. Also strips path and query parameters from timeout log messages to avoid leaking sensitive URL data, and adds a warning when the primary audit produces an empty element inventory.
+
+### 1 audit error resolved — update stale docstring in _parse_axe_result
+Updates the `_parse_axe_result` docstring to accurately reflect that `inapplicable` results are now treated as PASS rather than silently ignored.
+
+## v0.10.0 — 2026-04-16
+
+### pipeline worktree isolation and learnings guard
+Fixes the pipeline skill to create a worktree inline in Phase 1.5 (before any subagent spawns) rather than delegating worktree creation to the planner subagent, which lacked the required `EnterWorktree` tool. Also adds explicit guards to the Phase 6 learnings update that prevent the learnings-review skill from being invoked or command files being modified automatically.
+
+### revert version bump — pipeline.md fix unrelated to application
+Reverts a premature version bump in `package.json` that was introduced alongside the pipeline.md fix — infrastructure changes to the pipeline tooling do not warrant a version increment.
+
+### add verification agent for second-pass audit quality check
+Introduces a verification pass that runs a second Claude call immediately after the primary audit, acting as an automated peer reviewer. The verifier can add missed findings, remove hallucinated ones, and correct misapplied rubric labels. Prompt caching keeps the overhead to roughly 10–15% above a single-call run. Verification is enabled by default; callers can opt out with `verify=False`.
+
+### 3 audit errors resolved
+Corrects the verifier's rate-limit warning message from "API timeout" to "API rate limit", updates the `handler.py` module docstring to document the new `verify` parameter, and extends the integration test suite with a cache-token assertion.
+
+### update README for URL-only input and verification agent
+Updates the README to reflect that `image_source` now only accepts HTTP/HTTPS URLs (file paths are no longer supported), and documents the verification agent's role in the pipeline and how to disable it.
+
+### track token usage and estimated cost per run
+Adds a `RunUsage` dataclass that aggregates input and output token counts across the primary and verifier API calls, computes an estimated USD cost, and appends a summary table to each per-run debug file in `runs/`. Token data flows from both API responses through `verifier.run_verification` (which now returns a tuple) and up to `handler.analyze_ui_screenshot`.
+
+### add real-time progress output to uxiq analyze
+Adds a `--quiet` / `-q` CLI flag to suppress console output. When not suppressed, the CLI fires stage-start and stage-end callbacks at image load, axe-core check, Claude analysis, and verification pass, writing human-readable progress lines to stderr. Stdout carries only the final Markdown report, keeping the tool composable in pipelines. Library callers are unaffected — `progress=None` is the unchanged default.
+
+### 1 audit error resolved — update stale module docstring in handler.py
+Updates the `handler.py` module-level docstring to reflect the `progress` callback parameter added in the previous commit.
+
+### block real API calls in tests — add pytest-socket and tests/CLAUDE.md
+Installs `pytest-socket` as a dev dependency and sets `--disable-socket` in pytest's `addopts`, causing any test that opens a real network socket to fail immediately with `SocketBlockedError`. Also creates `ui-analyzer/tests/CLAUDE.md` with explicit rules and the correct mock pattern for agents writing tests. Removes the integration tests that were hitting the real Anthropic API and real network during the default `pytest` run.
+
+### XML-escape DOM values in prompt_builder to prevent attribute injection
+Applies `html.escape(quote=True)` to all six `DomElement` fields before f-string interpolation in `prompt_builder.py`, preventing malicious web pages from breaking the `<dom_elements>` XML structure or injecting instructions into the Claude prompt. Also adds an untrusted-content warning to `SYSTEM_PROMPT` and two new unit tests covering special-character escaping and prompt-injection containment.
 
 ## v0.9.0 — 2026-04-16
 
