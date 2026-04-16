@@ -7,6 +7,7 @@ Completely unparseable input produces a fully-empty AuditReport.
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
@@ -266,7 +267,15 @@ def parse(response_text: str) -> AuditReport:
 
     xml_slice = response_text[start : end + len("</audit_report>")]
 
-    # Step 2: Parse the extracted slice with ElementTree
+    # Step 2: Sanitize bare & that Claude may emit in free-text content.
+    # Replaces & not already part of a valid XML entity with &amp;.
+    xml_slice = re.sub(
+        r"&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)",
+        "&amp;",
+        xml_slice,
+    )
+
+    # Step 3: Parse the extracted slice with ElementTree
     try:
         root = ET.fromstring(xml_slice)
     except ET.ParseError as exc:

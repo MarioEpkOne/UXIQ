@@ -30,6 +30,7 @@ from ui_analyzer.xml_parser import parse
 logger = logging.getLogger(__name__)
 
 MODEL = "claude-sonnet-4-6"
+MAX_TOKENS = 16_384
 API_TIMEOUT_S = 180
 
 VALID_APP_TYPES = {"web_dashboard", "landing_page", "onboarding_flow", "forms"}
@@ -113,7 +114,7 @@ def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
     try:
         response = client.messages.create(
             model=MODEL,
-            max_tokens=8192,
+            max_tokens=MAX_TOKENS,
             timeout=API_TIMEOUT_S,
             system=SYSTEM_PROMPT,
             messages=[
@@ -140,6 +141,13 @@ def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
         raise UIAnalyzerError(f"Anthropic API call timed out after {API_TIMEOUT_S}s.")
     except anthropic.RateLimitError:
         raise UIAnalyzerError("Anthropic API rate limit hit. Retry after a moment.")
+
+    # 7b. Detect truncation before attempting any parsing
+    if response.stop_reason == "max_tokens":
+        raise UIAnalyzerError(
+            f"Claude's response was cut off — the audit exceeded the {MAX_TOKENS}-token "
+            "output ceiling. Try a simpler screenshot or contact support."
+        )
 
     # 8. Extract preamble (text before <audit_report>) from raw response
     raw_text = response.content[0].text
