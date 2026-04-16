@@ -72,6 +72,10 @@ def test_extract_dom_parses_elements_correctly():
     assert btn.text == "Sign in"
     assert btn.aria_label == ""
 
+    # New fields default when raw dict lacks them (legacy JS selector doesn't emit them)
+    assert btn.alt == ""
+    assert (btn.x, btn.y, btn.w, btn.h) == (0, 0, 0, 0)
+
     inp = result.elements[2]
     assert inp.tag == "input"
     assert inp.aria_label == "Email address"

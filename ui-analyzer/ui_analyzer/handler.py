@@ -25,7 +25,8 @@ from ui_analyzer.axe_runner import AxeCoreResult, AxeFailure, run_axe
 from ui_analyzer.context_events import thread_to_prompt
 from ui_analyzer.dom_extractor import DomElements, DomFailure, extract_dom
 from ui_analyzer.exceptions import UIAnalyzerError
-from ui_analyzer.image_source import resolve
+from ui_analyzer.image_source import ResolvedImage, resolve
+from ui_analyzer.page_capture import capture_page
 from ui_analyzer.prompt_builder import build_thread
 from ui_analyzer.prompts import SYSTEM_PROMPT
 from ui_analyzer.report_renderer import render
@@ -191,45 +192,71 @@ def analyze_ui_screenshot(
 
     # 0c. Image-file URL guard — soft failure; disables axe+DOM for image URLs
     _url_is_image = _is_image_url(req.image_source)
+    _is_http_url = req.image_source.startswith("http://") or req.image_source.startswith("https://")
 
-    # 2. Resolve image (raises UIAnalyzerError on hard failure)
-    if progress is not None:
-        progress.stage_start("image", "Loading image...")
-    _t0 = _time.monotonic()
-    resolved = resolve(req.image_source)
-    if progress is not None:
-        progress.stage_end("image", "Image loaded", _time.monotonic() - _t0)
-
-    # 3. Run axe-core (skipped for image URLs — axe requires a live webpage)
-    if progress is not None:
-        progress.stage_start("axe", "Running accessibility checks...")
-    _t0 = _time.monotonic()
-    if _url_is_image:
-        axe_result: AxeCoreResult | AxeFailure = AxeFailure(
-            reason="URL points to an image file, not a webpage — axe-core requires a live page"
+    # URL-to-webpage branch: one Playwright session covers screenshot + DOM + axe.
+    if _is_http_url and not _url_is_image:
+        if progress is not None:
+            progress.stage_start("image", "Loading image...")
+        _t0 = _time.monotonic()
+        capture = capture_page(req.image_source)
+        resolved = ResolvedImage(
+            bytes=capture.image_bytes,
+            source_type="url",
+            width_px=capture.image_width_px,
+            height_px=capture.image_height_px,
         )
-    else:
-        axe_result = run_axe(req.image_source)
-    if isinstance(axe_result, AxeFailure):
-        logger.warning("axe-core failed: %s — continuing in estimated mode", axe_result.reason)
+        if progress is not None:
+            progress.stage_end("image", "Image loaded", _time.monotonic() - _t0)
 
-    # 3b. Extract DOM elements (skipped for image URLs)
-    if _url_is_image:
-        dom_result: DomElements | DomFailure = DomFailure(
-            reason="URL points to an image file, not a webpage"
-        )
-    else:
-        dom_result = extract_dom(req.image_source)
-    if isinstance(dom_result, DomFailure):
-        logger.warning("DOM extraction failed: %s — continuing without DOM data", dom_result.reason)
+        axe_result: AxeCoreResult | AxeFailure = capture.axe_result
+        dom_result: DomElements | DomFailure = DomElements(elements=capture.dom_elements)
 
-    if progress is not None:
-        _axe_detail = ""
-        if isinstance(axe_result, AxeCoreResult):
-            _n_violations = sum(1 for f in axe_result.findings if f.result == "FAIL")
-            if _n_violations > 0:
-                _axe_detail = f"{_n_violations} violation(s) found"
-        progress.stage_end("axe", "Accessibility checks done", _time.monotonic() - _t0, _axe_detail)
+        # Emit the "axe" progress pair for CLI compatibility (single unified call,
+        # but the ProgressCallback protocol expects an axe stage).
+        if progress is not None:
+            _axe_detail = ""
+            if isinstance(axe_result, AxeCoreResult):
+                _n_violations = sum(1 for f in axe_result.findings if f.result == "FAIL")
+                if _n_violations > 0:
+                    _axe_detail = f"{_n_violations} violation(s) found"
+            progress.stage_start("axe", "Running accessibility checks...")
+            progress.stage_end("axe", "Accessibility checks done", 0.0, _axe_detail)
+
+    else:
+        # File path or image URL: unchanged from prior behaviour —
+        # resolve() only, no axe, no DOM.
+        if progress is not None:
+            progress.stage_start("image", "Loading image...")
+        _t0 = _time.monotonic()
+        resolved = resolve(req.image_source)
+        if progress is not None:
+            progress.stage_end("image", "Image loaded", _time.monotonic() - _t0)
+
+        if progress is not None:
+            progress.stage_start("axe", "Running accessibility checks...")
+        _t0 = _time.monotonic()
+        if _url_is_image:
+            axe_result = AxeFailure(
+                reason="URL points to an image file, not a webpage — axe-core requires a live page"
+            )
+            dom_result = DomFailure(
+                reason="URL points to an image file, not a webpage"
+            )
+        else:
+            # File path input
+            axe_result = AxeFailure(
+                reason="axe-core requires a live page; file inputs are audited in estimated mode"
+            )
+            dom_result = DomFailure(
+                reason="DOM extraction requires a live page; file inputs have no DOM"
+            )
+        if isinstance(axe_result, AxeFailure):
+            logger.warning("axe-core failed: %s — continuing in estimated mode", axe_result.reason)
+        if isinstance(dom_result, DomFailure):
+            logger.warning("DOM extraction failed: %s — continuing without DOM data", dom_result.reason)
+        if progress is not None:
+            progress.stage_end("axe", "Accessibility checks done", _time.monotonic() - _t0, "")
 
     # 4. Build context event thread
     events = build_thread(

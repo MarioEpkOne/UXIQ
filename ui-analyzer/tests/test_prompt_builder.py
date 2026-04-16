@@ -133,7 +133,11 @@ def test_build_thread_dom_elements_injected_at_position_3():
     from ui_analyzer.dom_extractor import DomElement, DomElements
 
     dom_result = DomElements(elements=[
-        DomElement(tag="button", role="", text="Sign in", aria_label="", placeholder="", input_type=""),
+        DomElement(
+            tag="button", role="", text="Sign in",
+            aria_label="", placeholder="", input_type="",
+            alt="", x=16, y=120, w=120, h=40,
+        ),
     ])
     events = build_thread(
         app_type="web_dashboard",
@@ -146,10 +150,15 @@ def test_build_thread_dom_elements_injected_at_position_3():
     )
     types = [e.type for e in events]
     assert types[2] == "dom_elements"
-    # Verify count attribute in serialized XML
-    assert 'count="1"' in events[2].data
-    assert 'tag="button"' in events[2].data
-    assert 'text="Sign in"' in events[2].data
+    xml = events[2].data
+    assert 'count="1"' in xml
+    assert 'viewport_width="1280"' in xml
+    assert 'viewport_height="800"' in xml
+    assert 'tag="button"' in xml
+    assert 'text="Sign in"' in xml
+    assert 'x="16"' in xml and 'y="120"' in xml
+    assert 'w="120"' in xml and 'h="40"' in xml
+    assert 'alt=""' in xml
 
 
 def test_build_thread_dom_failure_injects_dom_unavailable():
@@ -198,6 +207,8 @@ def test_build_thread_dom_elements_count_zero():
     assert "dom_elements" in types
     dom_event = next(e for e in events if e.type == "dom_elements")
     assert 'count="0"' in dom_event.data
+    assert 'viewport_width="1280"' in dom_event.data
+    assert 'viewport_height="800"' in dom_event.data
 
 
 # ---------------------------------------------------------------------------

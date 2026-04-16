@@ -71,9 +71,17 @@ def _make_claude_response(text: str) -> MagicMock:
 
 def test_verify_false_no_second_api_call(mocker):
     """verify=False → messages.create called exactly once (no verifier call)."""
-    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    from ui_analyzer.page_capture import PageCapture
+    mocker.patch(
+        "ui_analyzer.handler.capture_page",
+        return_value=PageCapture(
+            image_bytes=_FAKE_IMAGE_BYTES,
+            image_width_px=1280,
+            image_height_px=800,
+            dom_elements=[],
+            axe_result=AxeCoreResult(findings=[]),
+        ),
+    )
     mocker.patch("ui_analyzer.handler.write_run")
 
     mock_anthropic = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")

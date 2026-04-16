@@ -41,6 +41,11 @@ class DomElement:
     aria_label: str   # aria-label attribute — empty string if absent
     placeholder: str  # placeholder attribute (inputs) — empty string if absent
     input_type: str   # type attribute (inputs) — empty string if not an input
+    alt: str = ""     # img@alt — empty string for non-img elements
+    x: int = 0        # viewport-pixel left, clamped to [0, 1280]
+    y: int = 0        # viewport-pixel top, clamped to [0, 800]
+    w: int = 0        # viewport-pixel width (unclamped — may exceed viewport)
+    h: int = 0        # viewport-pixel height (unclamped — may exceed viewport)
 
 
 @dataclass
@@ -93,6 +98,11 @@ def extract_dom(url: str, max_elements: int = 300) -> DomElements | DomFailure:
                 aria_label=item.get("aria_label", ""),
                 placeholder=item.get("placeholder", ""),
                 input_type=item.get("input_type", ""),
+                alt=item.get("alt", ""),
+                x=int(item.get("x", 0)),
+                y=int(item.get("y", 0)),
+                w=int(item.get("w", 0)),
+                h=int(item.get("h", 0)),
             )
             for item in (raw or [])
         ]

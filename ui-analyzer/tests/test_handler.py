@@ -58,6 +58,18 @@ def _make_resolved_url() -> ResolvedImage:
     )
 
 
+def _make_page_capture(*, dom_elements=None, axe_findings=None) -> object:
+    """Build a mock PageCapture equivalent for handler URL-branch tests."""
+    from ui_analyzer.page_capture import PageCapture
+    return PageCapture(
+        image_bytes=_FAKE_IMAGE_BYTES,
+        image_width_px=1280,
+        image_height_px=800,
+        dom_elements=dom_elements if dom_elements is not None else [],
+        axe_result=AxeCoreResult(findings=axe_findings if axe_findings is not None else []),
+    )
+
+
 def _make_usage() -> MagicMock:
     usage = MagicMock()
     usage.input_tokens = 100
@@ -85,12 +97,7 @@ def test_valid_file_path_returns_markdown_with_all_tiers(mocker):
     """Valid URL → Markdown str containing all four tier section headers."""
     url = "https://example.com"
 
-    mocker.patch(
-        "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_url(),
-    )
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch(
         "ui_analyzer.handler.anthropic.Anthropic"
@@ -116,15 +123,7 @@ def test_valid_url_axe_success_shows_authoritative(mocker):
     """Valid URL with axe success → report header shows 'Authoritative (axe-core)'."""
     url = "https://example.com"
 
-    mocker.patch(
-        "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_url(),
-    )
-    mocker.patch(
-        "ui_analyzer.handler.run_axe",
-        return_value=AxeCoreResult(findings=[]),
-    )
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch(
         "ui_analyzer.handler.anthropic.Anthropic"
@@ -142,32 +141,17 @@ def test_valid_url_axe_success_shows_authoritative(mocker):
 # Scenario 3: axe-core failure (mocked) → returns str with ESTIMATED labels, no exception
 # ---------------------------------------------------------------------------
 
-def test_axe_failure_returns_string_not_exception(mocker):
-    """AxeFailure from run_axe → report returned (no exception), ESTIMATED mode."""
+def test_axe_failure_raises_ui_analyzer_error(mocker):
+    """capture_page raising UIAnalyzerError → propagates up, no Markdown returned."""
     url = "https://example.com"
-
     mocker.patch(
-        "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_url(),
+        "ui_analyzer.handler.capture_page",
+        side_effect=UIAnalyzerError("capture failed at axe_run: axe-core timed out"),
     )
-    mocker.patch(
-        "ui_analyzer.handler.run_axe",
-        return_value=AxeFailure(reason="axe-core JS injection failed"),
-    )
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
     mocker.patch("ui_analyzer.handler.write_run")
-    mock_create = mocker.patch(
-        "ui_analyzer.handler.anthropic.Anthropic"
-    )
-    mock_create.return_value.messages.create.return_value = _make_claude_response(
-        MINIMAL_VALID_XML
-    )
 
-    result = analyze_ui_screenshot(url, "forms")
-
-    assert isinstance(result, str)
-    # axe_succeeded=False → renderer uses "Estimated (visual)"
-    assert "Estimated (visual)" in result
+    with pytest.raises(UIAnalyzerError, match="capture failed at axe_run"):
+        analyze_ui_screenshot(url, "forms")
 
 
 # ---------------------------------------------------------------------------
@@ -178,12 +162,7 @@ def test_malformed_xml_returns_string_with_warning(mocker):
     """Malformed XML from Claude → report str returned with parse warning block."""
     url = "https://example.com"
 
-    mocker.patch(
-        "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_url(),
-    )
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch(
         "ui_analyzer.handler.anthropic.Anthropic"
@@ -209,12 +188,7 @@ def test_api_timeout_raises_ui_analyzer_error(mocker):
 
     url = "https://example.com"
 
-    mocker.patch(
-        "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_url(),
-    )
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mock_create = mocker.patch(
         "ui_analyzer.handler.anthropic.Anthropic"
     )
@@ -236,12 +210,7 @@ def test_api_rate_limit_raises_ui_analyzer_error(mocker):
 
     url = "https://example.com"
 
-    mocker.patch(
-        "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_url(),
-    )
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mock_create = mocker.patch(
         "ui_analyzer.handler.anthropic.Anthropic"
     )
@@ -322,12 +291,7 @@ def test_handler_non_ui_preamble_passes_through(mocker):
         + MINIMAL_VALID_XML
     )
 
-    mocker.patch(
-        "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_url(),
-    )
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_create.return_value.messages.create.return_value = _make_claude_response(
@@ -347,12 +311,7 @@ def test_handler_non_ui_preamble_passes_through(mocker):
 
 def test_handler_no_preamble_output_unchanged(mocker):
     """Response starting directly with <audit_report> → output is unchanged (no extra whitespace prepended)."""
-    mocker.patch(
-        "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_url(),
-    )
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_create.return_value.messages.create.return_value = _make_claude_response(
@@ -372,12 +331,7 @@ def test_handler_whitespace_only_preamble_not_prepended(mocker):
     """Response with whitespace-only text before <audit_report> → preamble suppressed."""
     WHITESPACE_PREAMBLE_XML = "   \n\n" + MINIMAL_VALID_XML
 
-    mocker.patch(
-        "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_url(),
-    )
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_create.return_value.messages.create.return_value = _make_claude_response(
@@ -397,12 +351,7 @@ def test_handler_no_xml_preamble_shown(mocker):
     """Response with no <audit_report> tag → entire response used as preamble; malformed warning present."""
     NO_XML_RESPONSE = "I cannot analyze this image."
 
-    mocker.patch(
-        "ui_analyzer.handler.resolve",
-        return_value=_make_resolved_url(),
-    )
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_create = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_create.return_value.messages.create.return_value = _make_claude_response(
@@ -424,9 +373,7 @@ def test_progress_callbacks_called_in_order_with_correct_stage_ids(mocker):
     from unittest.mock import call, MagicMock as MM
 
     url = "https://example.com"
-    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)
@@ -450,9 +397,7 @@ def test_progress_callbacks_called_in_order_with_correct_stage_ids(mocker):
 def test_progress_not_called_when_none(mocker):
     """analyze_ui_screenshot with progress=None → no AttributeError; runs normally."""
     url = "https://example.com"
-    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)
@@ -462,14 +407,12 @@ def test_progress_not_called_when_none(mocker):
     assert isinstance(result, str)
 
 
-def test_progress_axe_failure_still_calls_stage_end(mocker):
-    """AxeFailure → axe stage_end is still called with empty detail string."""
+def test_progress_axe_stage_fires_on_success(mocker):
+    """Successful capture → axe stage_end is called once (unified call still emits the axe stage for CLI compat)."""
     from unittest.mock import MagicMock as MM
 
     url = "https://example.com"
-    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeFailure(reason="injection failed"))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)
@@ -479,10 +422,6 @@ def test_progress_axe_failure_still_calls_stage_end(mocker):
 
     axe_end_calls = [c for c in mock_progress.method_calls if c[0] == "stage_end" and c[1][0] == "axe"]
     assert len(axe_end_calls) == 1
-    # detail should be empty string on axe failure
-    _, pos_args, kw_args = axe_end_calls[0]
-    detail = kw_args.get("detail", pos_args[3] if len(pos_args) > 3 else "")
-    assert detail == ""
 
 
 def test_progress_verify_false_skips_verify_stage(mocker):
@@ -490,9 +429,7 @@ def test_progress_verify_false_skips_verify_stage(mocker):
     from unittest.mock import MagicMock as MM
 
     url = "https://example.com"
-    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)
@@ -509,9 +446,7 @@ def test_progress_elapsed_is_non_negative(mocker):
     from unittest.mock import MagicMock as MM
 
     url = "https://example.com"
-    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)
@@ -644,9 +579,7 @@ def test_explicit_model_passed_to_api(mocker):
     """analyze_ui_screenshot(..., model='claude-opus-4-6') passes that model to client.messages.create."""
     url = "https://example.com"
 
-    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)
@@ -666,9 +599,7 @@ def test_no_model_arg_reads_from_config(mocker):
     """analyze_ui_screenshot(...) with no model arg → config.get_model() is consulted."""
     url = "https://example.com"
 
-    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
-    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
-    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.capture_page", return_value=_make_page_capture())
     mocker.patch("ui_analyzer.handler.write_run")
     mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
     mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)

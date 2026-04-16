@@ -88,18 +88,22 @@ def build_thread(
 
     # 3. DOM elements block
     if isinstance(dom_result, DomElements):
-        # Serialize elements as XML string for verbatim injection
+        # Serialize elements as XML string for verbatim injection.
+        # String attributes are HTML-escaped; integer attributes are emitted verbatim.
         element_lines = [
             f'  <element tag="{html.escape(el.tag, quote=True)}" '
             f'role="{html.escape(el.role, quote=True)}" '
             f'text="{html.escape(el.text, quote=True)}" '
             f'aria_label="{html.escape(el.aria_label, quote=True)}" '
+            f'alt="{html.escape(el.alt, quote=True)}" '
             f'placeholder="{html.escape(el.placeholder, quote=True)}" '
-            f'input_type="{html.escape(el.input_type, quote=True)}"/>'
+            f'input_type="{html.escape(el.input_type, quote=True)}" '
+            f'x="{el.x}" y="{el.y}" w="{el.w}" h="{el.h}"/>'
             for el in dom_result.elements
         ]
         dom_xml = (
-            f'<dom_elements count="{len(dom_result.elements)}">\n'
+            f'<dom_elements count="{len(dom_result.elements)}" '
+            f'viewport_width="1280" viewport_height="800">\n'
             + "\n".join(element_lines)
             + "\n</dom_elements>"
         )
