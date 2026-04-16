@@ -1,5 +1,28 @@
-<!-- last-commit: e3c98c143b8017d07c18c13aeb01387caf65ce7c -->
+<!-- last-commit: 9017b68a31a3db062f41093a9808a3978653bcd2 -->
 # Patch Notes
+
+## v0.9.0 — 2026-04-16
+
+### DOM injection, URL-only input, and per-run debug files
+The most significant update since the initial implementation. Three coordinated changes ship together: (1) `image_source` is restricted to HTTP/HTTPS URLs — file-path inputs now raise `pydantic.ValidationError` before any Playwright call, eliminating conditional branches throughout the pipeline. (2) A new `dom_extractor.py` module uses Playwright to extract interactive DOM elements (buttons, links, inputs, elements with ARIA roles) from the live page and injects them as a `<dom_elements>` event at position 3 in Claude's prompt, anchoring its visual inventory to real DOM nodes instead of screenshot inference alone. (3) A new `run_writer.py` module writes a per-run Markdown debug file to `runs/` after every analysis — containing Claude's confidence rating, element inventory, structure observation, and the full rendered report — so operators can manually verify that Claude's perception matches the actual UI.
+
+### 1 audit error resolved — add runs/ file assertions to integration test
+The integration test for URL-based analysis was updated to assert that a debug file is written to `runs/` and that it contains the `## What Claude Sees` and `## Full Analysis` section headers, closing the gap between the spec's Testing Strategy and the actual test coverage.
+
+### raise max_tokens to 16 384, guard against truncation, sanitize bare & in XML
+Raises the Claude API `max_tokens` ceiling to 16 384 to prevent truncated audit responses on complex pages. Adds a post-call truncation guard that detects `stop_reason == "max_tokens"` and raises `UIAnalyzerError` with a clear message before the malformed XML reaches the parser. Also sanitizes unescaped `&` characters in raw HTML attributes that were causing the XML parser to fail on axe-core output.
+
+### add README
+Adds `README.md` with installation instructions, CLI usage examples, Python API usage, app-type reference, and notes on the `runs/` debug file format and Playwright setup.
+
+### remove pipeline artifacts from remote, add to .gitignore
+Pipeline artifacts (implementation plans, retros, working logs, specs, and `learnings.md`) are no longer tracked in version control. A `.gitignore` block excludes these directories so future pipeline runs do not accumulate in the repository.
+
+### add CLAUDE.md, response-robustness spec, and bug report
+Commits the project-level `CLAUDE.md` with architecture notes and key invariants for the Claude Code agent, alongside a bug report for the truncation issue and a response-robustness spec that drove the `max_tokens` / truncation-guard fix.
+
+### clear learnings — 6 pipeline improvements applied to impl/impl-plan/fix/pipeline commands
+Clears six previously recorded pipeline learnings after applying them to the pipeline command files, keeping `learnings.md` focused on unaddressed improvements.
 
 ## v0.8.0 — 2026-04-16
 
