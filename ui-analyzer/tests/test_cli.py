@@ -96,6 +96,7 @@ def test_analyze_ui_analyzer_error_exits_1_to_stderr(mocker):
             image_source="fake.png",
             app_type="web_dashboard",
             output=None,
+            quiet=True,
             func=cli._cmd_analyze,
         )
         with pytest.raises(SystemExit) as exc_info:
@@ -123,6 +124,7 @@ def test_analyze_output_flag_writes_file(mocker):
                 image_source="fake.png",
                 app_type="web_dashboard",
                 output=tmp_path,
+                quiet=True,
                 func=cli._cmd_analyze,
             )
             # Capture stderr
@@ -156,6 +158,7 @@ def test_analyze_output_bad_path_exits_1(mocker):
             image_source="fake.png",
             app_type="web_dashboard",
             output="/nonexistent/directory/out.md",
+            quiet=True,
             func=cli._cmd_analyze,
         )
         with pytest.raises(SystemExit) as exc_info:
@@ -208,3 +211,81 @@ def test_version_works_without_api_key():
     )
     assert result.returncode == 0
     assert result.stdout.startswith("uxiq ")
+
+
+# ---------------------------------------------------------------------------
+# --quiet / -q flag tests
+# ---------------------------------------------------------------------------
+
+def test_quiet_flag_passes_none_progress(mocker):
+    """--quiet → progress=None is passed to analyze_ui_screenshot."""
+    from ui_analyzer import cli
+    import argparse
+
+    FAKE_REPORT = "# UI Analysis Report\n\nFake."
+
+    with patch("ui_analyzer.handler.analyze_ui_screenshot", return_value=FAKE_REPORT) as mock_analyze:
+        args = argparse.Namespace(
+            image_source="https://example.com",
+            app_type="web_dashboard",
+            output=None,
+            quiet=True,
+            func=cli._cmd_analyze,
+        )
+        import io
+        from contextlib import redirect_stdout
+        with redirect_stdout(io.StringIO()):
+            cli._cmd_analyze(args)
+
+        _, kwargs = mock_analyze.call_args
+        assert kwargs.get("progress") is None
+
+
+def test_quiet_suppresses_stderr_progress(mocker):
+    """--quiet → no progress lines written to stderr during successful run."""
+    from ui_analyzer import cli
+    import argparse
+    import io
+    from contextlib import redirect_stderr
+
+    FAKE_REPORT = "# UI Analysis Report\n\nFake."
+
+    with patch("ui_analyzer.handler.analyze_ui_screenshot", return_value=FAKE_REPORT):
+        args = argparse.Namespace(
+            image_source="https://example.com",
+            app_type="web_dashboard",
+            output=None,
+            quiet=True,
+            func=cli._cmd_analyze,
+        )
+        captured = io.StringIO()
+        with redirect_stderr(captured):
+            with patch("sys.stdout", io.StringIO()):
+                cli._cmd_analyze(args)
+
+    assert captured.getvalue() == ""
+
+
+def test_no_quiet_flag_creates_stderr_progress(mocker):
+    """Without --quiet → progress is not None; 'Done' appears in stderr output."""
+    from ui_analyzer import cli
+    import argparse
+    import io
+    from contextlib import redirect_stderr
+
+    FAKE_REPORT = "# UI Analysis Report\n\nFake."
+
+    with patch("ui_analyzer.handler.analyze_ui_screenshot", return_value=FAKE_REPORT):
+        args = argparse.Namespace(
+            image_source="https://example.com",
+            app_type="web_dashboard",
+            output=None,
+            quiet=False,
+            func=cli._cmd_analyze,
+        )
+        captured = io.StringIO()
+        with redirect_stderr(captured):
+            with patch("sys.stdout", io.StringIO()):
+                cli._cmd_analyze(args)
+
+    assert "Done" in captured.getvalue()

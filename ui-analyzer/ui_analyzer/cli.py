@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from importlib.metadata import version, PackageNotFoundError
 
 from pydantic import ValidationError
@@ -16,6 +17,53 @@ from pydantic import ValidationError
 from ui_analyzer.exceptions import UIAnalyzerError
 
 VALID_APP_TYPES = ["forms", "landing_page", "onboarding_flow", "web_dashboard"]
+
+
+# ---------------------------------------------------------------------------
+# Progress reporter
+# ---------------------------------------------------------------------------
+
+class StderrProgress:
+    """Writes pipeline progress to stderr.
+
+    Satisfies the ProgressCallback protocol in handler.py (duck-typed).
+    Each stage produces two lines:
+      →  <start label>
+      ✓  <completion label> (<elapsed>s)[ — <detail>]
+    A final summary line is written by calling .done().
+    """
+
+    _ARROW = "\u2192"   # →
+    _CHECK = "\u2713"   # ✓
+    _ARROW_ASCII = "->"
+    _CHECK_ASCII = "OK"
+
+    def __init__(self) -> None:
+        self._starts: dict[str, float] = {}
+        self._total_start = time.monotonic()
+
+    def stage_start(self, stage: str, label: str) -> None:
+        self._starts[stage] = time.monotonic()
+        self._write(f"{self._ARROW} {label}", arrow=True)
+
+    def stage_end(self, stage: str, label: str, elapsed: float, detail: str = "") -> None:
+        suffix = f" \u2014 {detail}" if detail else ""  # — (em-dash)
+        self._write(f"{self._CHECK} {label} ({elapsed:.1f}s){suffix}", arrow=False)
+
+    def done(self) -> None:
+        total = time.monotonic() - self._total_start
+        self._write(f"{self._CHECK} Done (total: {total:.1f}s)", arrow=False)
+
+    def _write(self, message: str, *, arrow: bool) -> None:
+        try:
+            print(message, file=sys.stderr)
+        except UnicodeEncodeError:
+            # Fall back to ASCII equivalents for Windows terminals without UTF-8
+            if arrow:
+                message = message.replace(self._ARROW, self._ARROW_ASCII)
+            else:
+                message = message.replace(self._CHECK, self._CHECK_ASCII)
+            print(message, file=sys.stderr)
 
 
 def main() -> None:
@@ -26,11 +74,12 @@ def main() -> None:
 
 
 def _cmd_analyze(args: argparse.Namespace) -> None:
-    """Handle `uxiq analyze <image_source> --app-type <type> [-o <path>]`."""
+    """Handle `uxiq analyze <image_source> --app-type <type> [-o <path>] [-q]`."""
     from ui_analyzer.handler import analyze_ui_screenshot
 
+    progress = None if args.quiet else StderrProgress()
     try:
-        report = analyze_ui_screenshot(args.image_source, args.app_type)
+        report = analyze_ui_screenshot(args.image_source, args.app_type, progress=progress)
     except ValidationError as exc:
         # Invalid app_type value — rejected by pydantic before any API call
         app_type_val = args.app_type
@@ -43,6 +92,8 @@ def _cmd_analyze(args: argparse.Namespace) -> None:
     except UIAnalyzerError as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
+    if progress is not None:
+        progress.done()
 
     if args.output:
         try:
@@ -102,6 +153,13 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="output",
         default=None,
         help="Optional path to write the Markdown report. Defaults to stdout.",
+    )
+    analyze_parser.add_argument(
+        "--quiet", "-q",
+        dest="quiet",
+        action="store_true",
+        default=False,
+        help="Suppress progress output. Useful for scripting and CI.",
     )
     analyze_parser.set_defaults(func=_cmd_analyze)
 

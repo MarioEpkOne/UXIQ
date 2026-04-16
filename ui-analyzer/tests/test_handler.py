@@ -415,3 +415,112 @@ def test_handler_no_xml_preamble_shown(mocker):
     assert "⚠️" in result or "malformed" in result.lower() or "warning" in result.lower()
 
 
+# ---------------------------------------------------------------------------
+# Progress callback tests
+# ---------------------------------------------------------------------------
+
+def test_progress_callbacks_called_in_order_with_correct_stage_ids(mocker):
+    """analyze_ui_screenshot with a mock progress → stage_start/stage_end called in expected order."""
+    from unittest.mock import call, MagicMock as MM
+
+    url = "https://example.com"
+    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
+    mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
+    mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)
+
+    mock_progress = MM()
+
+    analyze_ui_screenshot(url, "web_dashboard", progress=mock_progress)
+
+    # Extract only stage_start calls (in order)
+    start_calls = [c for c in mock_progress.method_calls if c[0] == "stage_start"]
+    end_calls = [c for c in mock_progress.method_calls if c[0] == "stage_end"]
+
+    start_ids = [c[1][0] for c in start_calls]
+    end_ids = [c[1][0] for c in end_calls]
+
+    # All four stages should appear
+    assert start_ids == ["image", "axe", "claude", "verify"]
+    assert end_ids == ["image", "axe", "claude", "verify"]
+
+
+def test_progress_not_called_when_none(mocker):
+    """analyze_ui_screenshot with progress=None → no AttributeError; runs normally."""
+    url = "https://example.com"
+    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
+    mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
+    mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)
+
+    # Should not raise
+    result = analyze_ui_screenshot(url, "web_dashboard", progress=None)
+    assert isinstance(result, str)
+
+
+def test_progress_axe_failure_still_calls_stage_end(mocker):
+    """AxeFailure → axe stage_end is still called with empty detail string."""
+    from unittest.mock import MagicMock as MM
+
+    url = "https://example.com"
+    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeFailure(reason="injection failed"))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
+    mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
+    mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)
+
+    mock_progress = MM()
+    analyze_ui_screenshot(url, "web_dashboard", progress=mock_progress)
+
+    axe_end_calls = [c for c in mock_progress.method_calls if c[0] == "stage_end" and c[1][0] == "axe"]
+    assert len(axe_end_calls) == 1
+    # detail should be empty string on axe failure
+    _, pos_args, kw_args = axe_end_calls[0]
+    detail = kw_args.get("detail", pos_args[3] if len(pos_args) > 3 else "")
+    assert detail == ""
+
+
+def test_progress_verify_false_skips_verify_stage(mocker):
+    """verify=False → stage_start/stage_end for 'verify' are never called."""
+    from unittest.mock import MagicMock as MM
+
+    url = "https://example.com"
+    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
+    mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
+    mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)
+
+    mock_progress = MM()
+    analyze_ui_screenshot(url, "web_dashboard", verify=False, progress=mock_progress)
+
+    verify_calls = [c for c in mock_progress.method_calls if c[1] and c[1][0] == "verify"]
+    assert verify_calls == []
+
+
+def test_progress_elapsed_is_non_negative(mocker):
+    """stage_end elapsed argument is always >= 0.0."""
+    from unittest.mock import MagicMock as MM
+
+    url = "https://example.com"
+    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
+    mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
+    mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)
+
+    mock_progress = MM()
+    analyze_ui_screenshot(url, "web_dashboard", progress=mock_progress)
+
+    end_calls = [c for c in mock_progress.method_calls if c[0] == "stage_end"]
+    for call in end_calls:
+        elapsed = call[1][2]  # third positional arg
+        assert elapsed >= 0.0
+

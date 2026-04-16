@@ -15,7 +15,7 @@ import os
 
 import anthropic
 from pydantic import BaseModel, field_validator
-from typing import Literal
+from typing import Literal, Protocol
 
 from ui_analyzer.axe_runner import AxeCoreResult, AxeFailure, run_axe
 from ui_analyzer.context_events import thread_to_prompt
@@ -31,6 +31,18 @@ from ui_analyzer.scorer import compute
 from ui_analyzer.xml_parser import parse
 
 logger = logging.getLogger(__name__)
+
+
+class ProgressCallback(Protocol):
+    """Duck-typed protocol for pipeline progress reporting.
+
+    Implementations must provide stage_start and stage_end.
+    The handler calls these at the start and end of each pipeline stage.
+    No ABC or hard import required — duck-typed.
+    """
+
+    def stage_start(self, stage: str, label: str) -> None: ...
+    def stage_end(self, stage: str, label: str, elapsed: float, detail: str = "") -> None: ...
 
 MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 16_384
@@ -69,7 +81,12 @@ class AnalyzeRequest(BaseModel):
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True) -> str:
+def analyze_ui_screenshot(
+    image_source: str,
+    app_type: str,
+    verify: bool = True,
+    progress: ProgressCallback | None = None,
+) -> str:
     """Orchestrate a full UI analysis and return a Markdown report.
 
     Args:
@@ -79,6 +96,10 @@ def analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True)
         verify: If True (default), run a second Claude pass to verify and amend
             the primary audit findings. Set to False to skip verification and
             reduce cost (saves ~10-15% of per-call token cost).
+        progress: Optional progress callback. When provided, stage_start and
+            stage_end are called at each pipeline stage boundary. When None
+            (default), no progress output is produced and existing callers
+            are unaffected.
 
     Returns:
         str — Markdown report. Always a string on soft failure (axe failure,
@@ -91,6 +112,8 @@ def analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True)
         UIAnalyzerError: on hard failure — URL 404/timeout/blank, API timeout,
             or API rate limit.
     """
+    import time as _time  # local import to avoid polluting module namespace
+
     # 0. Validate inputs (ValidationError propagates — not wrapped)
     req = AnalyzeRequest(image_source=image_source, app_type=app_type, verify=verify)
 
@@ -99,9 +122,17 @@ def analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True)
         raise UIAnalyzerError("UXIQ_ANTHROPIC_API_KEY environment variable is not set.")
 
     # 2. Resolve image (raises UIAnalyzerError on hard failure)
+    if progress is not None:
+        progress.stage_start("image", "Loading image...")
+    _t0 = _time.monotonic()
     resolved = resolve(req.image_source)
+    if progress is not None:
+        progress.stage_end("image", "Image loaded", _time.monotonic() - _t0)
 
     # 3. Run axe-core (always runs — URL-only guarantee)
+    if progress is not None:
+        progress.stage_start("axe", "Running accessibility checks...")
+    _t0 = _time.monotonic()
     axe_result: AxeCoreResult | AxeFailure | None = run_axe(req.image_source)
     if isinstance(axe_result, AxeFailure):
         logger.warning("axe-core failed: %s — continuing in estimated mode", axe_result.reason)
@@ -110,6 +141,14 @@ def analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True)
     dom_result: DomElements | DomFailure = extract_dom(req.image_source)
     if isinstance(dom_result, DomFailure):
         logger.warning("DOM extraction failed: %s — continuing without DOM data", dom_result.reason)
+
+    if progress is not None:
+        _axe_detail = ""
+        if isinstance(axe_result, AxeCoreResult):
+            _n_violations = sum(1 for f in axe_result.findings if f.result == "FAIL")
+            if _n_violations > 0:
+                _axe_detail = f"{_n_violations} violation(s) found"
+        progress.stage_end("axe", "Accessibility checks done", _time.monotonic() - _t0, _axe_detail)
 
     # 4. Build context event thread
     events = build_thread(
@@ -156,6 +195,9 @@ def analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True)
         },
     ]
 
+    if progress is not None:
+        progress.stage_start("claude", "Analysing with Claude...")
+    _t0 = _time.monotonic()
     try:
         response = client.messages.create(
             model=MODEL,
@@ -173,6 +215,8 @@ def analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True)
         raise UIAnalyzerError(f"Anthropic API call timed out after {API_TIMEOUT_S}s.")
     except anthropic.RateLimitError:
         raise UIAnalyzerError("Anthropic API rate limit hit. Retry after a moment.")
+    if progress is not None:
+        progress.stage_end("claude", "Analysis complete", _time.monotonic() - _t0)
 
     primary_usage = response.usage
 
@@ -193,6 +237,9 @@ def analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True)
     # 9.5. Verification pass — second Claude call that peer-reviews the primary output
     verifier_usage = None
     if req.verify:
+        if progress is not None:
+            progress.stage_start("verify", "Running verification pass...")
+        _t0 = _time.monotonic()
         audit_report, verifier_usage = run_verification(
             client=client,
             system=system_cacheable,
@@ -200,6 +247,8 @@ def analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True)
             primary_raw_text=raw_text,
             audit_report=audit_report,
         )
+        if progress is not None:
+            progress.stage_end("verify", "Verification complete", _time.monotonic() - _t0)
 
     # 10. Compute scores
     scores = compute(audit_report)
