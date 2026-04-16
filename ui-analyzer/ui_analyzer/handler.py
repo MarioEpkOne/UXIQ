@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 
 import anthropic
 from pydantic import BaseModel, field_validator
@@ -73,6 +74,10 @@ def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
         UIAnalyzerError: on hard failure — URL 404/timeout/blank, file not found,
             API timeout, or API rate limit.
     """
+    # 0. Guard: API key must be set before any work begins
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise UIAnalyzerError("ANTHROPIC_API_KEY environment variable is not set.")
+
     # 1. Validate inputs (ValidationError propagates — not wrapped)
     req = AnalyzeRequest(image_source=image_source, app_type=app_type)
 
