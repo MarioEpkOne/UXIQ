@@ -1,6 +1,7 @@
 """prompt_builder.py — assemble the ordered list of ContextEvents for one analysis call."""
 from __future__ import annotations
 
+import html
 from typing import Literal
 
 from ui_analyzer.axe_runner import AxeCoreResult, AxeFailure
@@ -89,9 +90,12 @@ def build_thread(
     if isinstance(dom_result, DomElements):
         # Serialize elements as XML string for verbatim injection
         element_lines = [
-            f'  <element tag="{el.tag}" role="{el.role}" text="{el.text}" '
-            f'aria_label="{el.aria_label}" placeholder="{el.placeholder}" '
-            f'input_type="{el.input_type}"/>'
+            f'  <element tag="{html.escape(el.tag, quote=True)}" '
+            f'role="{html.escape(el.role, quote=True)}" '
+            f'text="{html.escape(el.text, quote=True)}" '
+            f'aria_label="{html.escape(el.aria_label, quote=True)}" '
+            f'placeholder="{html.escape(el.placeholder, quote=True)}" '
+            f'input_type="{html.escape(el.input_type, quote=True)}"/>'
             for el in dom_result.elements
         ]
         dom_xml = (
