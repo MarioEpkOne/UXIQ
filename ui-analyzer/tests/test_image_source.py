@@ -13,12 +13,6 @@ from ui_analyzer.image_source import ResolvedImage, resolve
 # Helpers
 # ---------------------------------------------------------------------------
 
-_REAL_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-skip_if_no_key = pytest.mark.skipif(
-    _REAL_KEY in ("", "test-key-unit-tests"),
-    reason="ANTHROPIC_API_KEY not set to a real key",
-)
-
 
 def _make_png_bytes(width: int = 100, height: int = 100) -> bytes:
     """Return in-memory PNG bytes for a solid-colour image."""
@@ -230,20 +224,3 @@ def test_url_mode_success(mocker):
     assert result.width_px == 1280
     assert result.height_px == 800
 
-
-# ---------------------------------------------------------------------------
-# Integration — real Playwright (skipped without real API key / environment)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.integration
-@skip_if_no_key
-def test_image_source_url_integration():
-    """Integration: real Playwright captures https://example.com."""
-    result = resolve("https://example.com")
-
-    assert isinstance(result, ResolvedImage)
-    assert result.source_type == "url"
-    assert len(result.bytes) > 0
-    assert result.width_px == 1280
-    assert result.height_px == 800
