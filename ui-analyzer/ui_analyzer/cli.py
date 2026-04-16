@@ -15,7 +15,7 @@ from importlib.metadata import version, PackageNotFoundError
 from pydantic import ValidationError
 
 from ui_analyzer.exceptions import UIAnalyzerError
-from ui_analyzer.config import MODEL_ALIASES, get_model, set_model
+from ui_analyzer.config import MODEL_ALIASES, DEFAULT_MODEL_ALIAS, get_model, get_model_with_source, set_model
 
 VALID_APP_TYPES = ["forms", "landing_page", "onboarding_flow", "web_dashboard"]
 VALID_MODEL_ALIASES = sorted(MODEL_ALIASES.keys())
@@ -132,29 +132,23 @@ def _cmd_analyze(args: argparse.Namespace) -> None:
 
 def _cmd_model_show(args: argparse.Namespace) -> None:
     """Handle `uxiq model` — print current model alias + full ID."""
-    import json
-    from pathlib import Path
+    import warnings as _warnings
 
-    config_path = Path.home() / ".uxiq" / "config.json"
-    has_config = False
-    stored_alias: str | None = None
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        full_id, source = get_model_with_source()
 
-    if config_path.exists():
-        try:
-            with config_path.open(encoding="utf-8") as fh:
-                data = json.load(fh)
-            stored_alias = data.get("model")
-            if stored_alias in MODEL_ALIASES:
-                has_config = True
-        except Exception:
-            pass
+    for w in caught:
+        print(str(w.message), file=sys.stderr)
 
-    if has_config and stored_alias is not None:
-        full_id = MODEL_ALIASES[stored_alias]
-        print(f"current model: {full_id} ({stored_alias})")
+    if source == "stored":
+        # Reverse-lookup alias from full model ID
+        alias = next(
+            (a for a, fid in MODEL_ALIASES.items() if fid == full_id),
+            DEFAULT_MODEL_ALIAS,
+        )
+        print(f"current model: {full_id} ({alias})")
     else:
-        from ui_analyzer.config import DEFAULT_MODEL_ALIAS
-        full_id = MODEL_ALIASES[DEFAULT_MODEL_ALIAS]
         print(f"current model: {full_id} ({DEFAULT_MODEL_ALIAS}, default)")
 
 

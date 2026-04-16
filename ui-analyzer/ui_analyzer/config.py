@@ -6,6 +6,7 @@ import json
 import logging
 import warnings
 from pathlib import Path
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -33,27 +34,43 @@ def get_model(config_file: Path | None = None) -> str:
     - config file is corrupt (invalid JSON) — warns to stderr
     - stored alias is not in MODEL_ALIASES — warns to stderr
     """
+    full_id, _source = get_model_with_source(config_file=config_file, _stacklevel=3)
+    return full_id
+
+
+def get_model_with_source(
+    config_file: Path | None = None,
+    *,
+    _stacklevel: int = 2,
+) -> tuple[str, Literal["stored", "default"]]:
+    """Return (full_model_id, source) where source is 'stored' or 'default'.
+
+    Falls back to ('default_model_id', 'default') when:
+    - config file is absent
+    - config file is corrupt (invalid JSON) — warns to stderr
+    - stored alias is not in MODEL_ALIASES — warns to stderr
+    """
     path = config_file if config_file is not None else _CONFIG_FILE
     if not path.exists():
-        return MODEL_ALIASES[DEFAULT_MODEL_ALIAS]
+        return MODEL_ALIASES[DEFAULT_MODEL_ALIAS], "default"
     try:
         with path.open(encoding="utf-8") as fh:
             data = json.load(fh)
     except (json.JSONDecodeError, OSError) as exc:
         warnings.warn(
             f"uxiq config is corrupt or unreadable ({exc}); using default model.",
-            stacklevel=2,
+            stacklevel=_stacklevel,
         )
-        return MODEL_ALIASES[DEFAULT_MODEL_ALIAS]
+        return MODEL_ALIASES[DEFAULT_MODEL_ALIAS], "default"
 
     alias = data.get("model", DEFAULT_MODEL_ALIAS)
     if alias not in MODEL_ALIASES:
         warnings.warn(
             f"Unknown model alias {alias!r} in uxiq config; using default model.",
-            stacklevel=2,
+            stacklevel=_stacklevel,
         )
-        return MODEL_ALIASES[DEFAULT_MODEL_ALIAS]
-    return MODEL_ALIASES[alias]
+        return MODEL_ALIASES[DEFAULT_MODEL_ALIAS], "default"
+    return MODEL_ALIASES[alias], "stored"
 
 
 def set_model(alias: str, config_file: Path | None = None) -> None:
