@@ -148,10 +148,10 @@ def test_render_empty_tier_shows_no_issues_found():
 # ---------------------------------------------------------------------------
 
 def test_render_parse_warnings_appended():
-    """AuditReport with parse_warnings → warning block containing '⚠️ Claude returned a malformed response' present."""
+    """AuditReport with parse_warnings → warning block with '⚠️ Parse warning:' prefix present."""
     report = AuditReport(parse_warnings=["something went wrong"])
     result = _render(report)
-    assert "⚠️ Claude returned a malformed response" in result
+    assert "⚠️ Parse warning:" in result
 
 
 # ---------------------------------------------------------------------------
@@ -188,3 +188,14 @@ def test_render_footer_contains_model():
     # Footer is the last line
     last_line = result.strip().split("\n")[-1]
     assert "claude-sonnet-4-6" in last_line
+
+
+# ---------------------------------------------------------------------------
+# test_render_with_parse_warnings_includes_warning_text
+# ---------------------------------------------------------------------------
+
+def test_render_with_parse_warnings_includes_warning_text():
+    """Rendered output includes the actual warning text, not just a generic message."""
+    report = AuditReport(parse_warnings=["No <audit_report> block found in response"])
+    result = _render(report)
+    assert "No <audit_report> block found in response" in result

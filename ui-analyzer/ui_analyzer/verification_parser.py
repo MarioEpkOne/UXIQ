@@ -29,6 +29,10 @@ from ui_analyzer.xml_parser import (
     Tier4Finding,
 )
 
+# Regex-tolerant root-element search (handles attributed variants)
+_VERIF_REPORT_OPEN  = re.compile(r"<verification_report(?:\s[^>]*)?>")
+_VERIF_REPORT_CLOSE = re.compile(r"</verification_report>")
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,6 +67,8 @@ class CorrectFinding:
 class VerificationResult:
     amendments: list[AddFinding | RemoveFinding | CorrectFinding] = field(default_factory=list)
     parse_warnings: list[str] = field(default_factory=list)
+    inventory: str | None = None
+    structure_observation: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -250,15 +256,15 @@ def parse(response_text: str) -> VerificationResult:
     """
     result = VerificationResult()
 
-    # Locate <verification_report> block
-    start = response_text.find("<verification_report>")
-    end = response_text.find("</verification_report>")
+    # Locate <verification_report> block using regex — handles attributed variants.
+    m_open  = _VERIF_REPORT_OPEN.search(response_text)
+    m_close = _VERIF_REPORT_CLOSE.search(response_text)
 
-    if start == -1 or end == -1:
+    if not m_open or not m_close:
         result.parse_warnings.append("No <verification_report> block found in verifier response")
         return result
 
-    xml_slice = response_text[start: end + len("</verification_report>")]
+    xml_slice = response_text[m_open.start(): m_close.end()]
 
     # Sanitize bare &
     xml_slice = re.sub(
@@ -301,6 +307,21 @@ def parse(response_text: str) -> VerificationResult:
             _parse_tier4_amendments(t4, result)
     except Exception as exc:
         result.parse_warnings.append(f"Tier 4 amendments block error: {exc}")
+
+    # Extract scalar fields that the verifier may have populated
+    try:
+        inventory_el = root.find("inventory")
+        if inventory_el is not None and inventory_el.text:
+            result.inventory = inventory_el.text.strip()
+    except Exception as exc:
+        result.parse_warnings.append(f"Failed to parse verifier inventory: {exc}")
+
+    try:
+        so_el = root.find("structure_observation")
+        if so_el is not None and so_el.text:
+            result.structure_observation = so_el.text.strip()
+    except Exception as exc:
+        result.parse_warnings.append(f"Failed to parse verifier structure_observation: {exc}")
 
     return result
 
@@ -388,5 +409,11 @@ def apply_amendments(report: AuditReport, result: VerificationResult) -> AuditRe
 
         except Exception as exc:
             logger.debug("Amendment application error: %s — skipped", exc)
+
+    # Propagate inventory/structure_observation if verifier populated them
+    if result.inventory is not None:
+        amended.inventory = result.inventory
+    if result.structure_observation is not None:
+        amended.structure_observation = result.structure_observation
 
     return amended

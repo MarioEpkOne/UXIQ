@@ -382,3 +382,51 @@ def test_tier3_finding_uses_principle_attribute():
     assert hasattr(t3, "principle")
     assert t3.principle == "visual_hierarchy"
     assert not hasattr(t3, "criterion")
+
+
+# ---------------------------------------------------------------------------
+# test_parse_attributed_audit_report_tag (Bug 1 regression test)
+# ---------------------------------------------------------------------------
+
+def test_parse_attributed_audit_report_tag():
+    """<audit_report version="1"> (attributed) → parses correctly, no warnings, findings populated."""
+    xml = """
+<audit_report version="1">
+  <confidence level="high"></confidence>
+  <inventory>Nav bar, hero button</inventory>
+  <structure_observation>2-column layout</structure_observation>
+  <tier1_findings>
+    <finding criterion="1.4.3" element=".nav-link" result="FAIL" estimated="false">
+      <observed>contrast ratio 2.8:1</observed>
+      <required>4.5:1 for normal text</required>
+      <recommendation>Change to #374151</recommendation>
+    </finding>
+  </tier1_findings>
+  <tier2_findings/>
+  <tier3_findings/>
+  <tier4_findings/>
+</audit_report>
+"""
+    report = parse(xml)
+    assert isinstance(report, AuditReport)
+    assert len(report.tier1_findings) == 1
+    assert report.tier1_findings[0].criterion == "1.4.3"
+    assert report.parse_warnings == []
+
+
+def test_parse_attributed_audit_report_with_prose():
+    """Prose + attributed <audit_report ...> → preamble ignored, findings parsed correctly."""
+    prose = "Here is my detailed analysis:\n\n"
+    xml = """<audit_report version="1">
+  <confidence level="medium"></confidence>
+  <inventory>A button</inventory>
+  <structure_observation>simple</structure_observation>
+  <tier1_findings/>
+  <tier2_findings/>
+  <tier3_findings/>
+  <tier4_findings/>
+</audit_report>"""
+    report = parse(prose + xml)
+    assert isinstance(report, AuditReport)
+    assert report.inventory == "A button"
+    assert report.parse_warnings == []

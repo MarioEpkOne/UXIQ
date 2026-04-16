@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from ui_analyzer.axe_runner import AxeCoreResult, AxeFailure
 from ui_analyzer.dom_extractor import DomElements, DomFailure
 from ui_analyzer.exceptions import UIAnalyzerError
-from ui_analyzer.handler import _media_type, _to_base64, analyze_ui_screenshot
+from ui_analyzer.handler import _extract_preamble, _media_type, _to_base64, analyze_ui_screenshot
 from ui_analyzer.image_source import ResolvedImage
 from ui_analyzer.xml_parser import AuditReport
 
@@ -616,3 +616,21 @@ def test_check_ssrf_public_ip_does_not_raise(mocker):
 
     # Should not raise
     _check_ssrf("https://example.com/page")
+
+
+# ---------------------------------------------------------------------------
+# _extract_preamble — attributed tag regression tests (Bug 1 fix)
+# ---------------------------------------------------------------------------
+
+def test_extract_preamble_attributed_tag():
+    """_extract_preamble() with attributed <audit_report version="1"> returns text before the tag."""
+    raw = 'Here is my analysis.\n\n<audit_report version="1"><tier1_findings/></audit_report>'
+    preamble = _extract_preamble(raw)
+    assert preamble == "Here is my analysis."
+
+
+def test_extract_preamble_plain_tag():
+    """_extract_preamble() with plain <audit_report> — no regression from existing behavior."""
+    raw = "Preamble text.\n\n<audit_report><tier1_findings/></audit_report>"
+    preamble = _extract_preamble(raw)
+    assert preamble == "Preamble text."

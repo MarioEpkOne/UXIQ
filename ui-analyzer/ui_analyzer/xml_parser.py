@@ -11,6 +11,10 @@ import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
+# Regex-tolerant root-element search (handles attributed variants like <audit_report version="1">)
+_AUDIT_REPORT_OPEN  = re.compile(r"<audit_report(?:\s[^>]*)?>")
+_AUDIT_REPORT_CLOSE = re.compile(r"</audit_report>")
+
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -256,16 +260,18 @@ def parse(response_text: str) -> AuditReport:
     """
     report = AuditReport()
 
-    # Step 1: Find <audit_report> boundaries using str.find()
-    # This handles Claude prepending prose before the XML block.
-    start = response_text.find("<audit_report>")
-    end = response_text.find("</audit_report>")
+    # Step 1: Find <audit_report> boundaries using regex.
+    # Handles Claude emitting attributed variants like <audit_report version="1">.
+    m_open  = _AUDIT_REPORT_OPEN.search(response_text)
+    m_close = _AUDIT_REPORT_CLOSE.search(response_text)
 
-    if start == -1 or end == -1:
+    if not m_open or not m_close:
         report.parse_warnings.append("No <audit_report> block found in response")
         return report
 
-    xml_slice = response_text[start : end + len("</audit_report>")]
+    start = m_open.start()
+    end   = m_close.end()
+    xml_slice = response_text[start:end]
 
     # Step 2: Sanitize bare & that Claude may emit in free-text content.
     # Replaces & not already part of a valid XML entity with &amp;.

@@ -8,9 +8,10 @@ from ui_analyzer.verification_parser import (
     CorrectFinding,
     RemoveFinding,
     VerificationResult,
+    apply_amendments,
     parse,
 )
-from ui_analyzer.xml_parser import Tier1Finding, Tier2Finding, Tier3Finding, Tier4Finding
+from ui_analyzer.xml_parser import AuditReport, Tier1Finding, Tier2Finding, Tier3Finding, Tier4Finding
 
 
 # ---------------------------------------------------------------------------
@@ -264,3 +265,74 @@ def test_parse_prose_before_block():
     result = parse(xml_with_prose)
     assert len(result.amendments) == 5
     assert result.parse_warnings == []
+
+
+# ---------------------------------------------------------------------------
+# Test 15: attributed <verification_report> tag
+# ---------------------------------------------------------------------------
+
+def test_parse_attributed_verification_report_tag():
+    """<verification_report version="2"> (attributed) → no warnings, amendments parsed."""
+    xml = """
+<verification_report version="2">
+  <assessment>Minor corrections applied</assessment>
+  <tier2_amendments>
+    <add principle="proximity" severity="1" element="Cards">
+      <issue>Gap too small</issue>
+      <recommendation>Increase gap</recommendation>
+      <reason>Missed in primary pass</reason>
+    </add>
+  </tier2_amendments>
+</verification_report>
+"""
+    result = parse(xml)
+    assert result.parse_warnings == []
+    assert len(result.amendments) == 1
+
+
+# ---------------------------------------------------------------------------
+# Test 16: verifier populates inventory inside <verification_report>
+# ---------------------------------------------------------------------------
+
+def test_parse_verification_report_with_inventory():
+    """<inventory> inside <verification_report> populates VerificationResult.inventory."""
+    xml = """
+<verification_report>
+  <assessment>Inventory was missing; populated now.</assessment>
+  <inventory>Nav bar, hero CTA, 3 metric cards, sidebar</inventory>
+  <structure_observation>2-column grid layout</structure_observation>
+</verification_report>
+"""
+    result = parse(xml)
+    assert result.inventory == "Nav bar, hero CTA, 3 metric cards, sidebar"
+    assert result.structure_observation == "2-column grid layout"
+    assert result.parse_warnings == []
+
+
+# ---------------------------------------------------------------------------
+# Test 17: apply_amendments propagates inventory onto AuditReport
+# ---------------------------------------------------------------------------
+
+def test_apply_amendments_propagates_inventory():
+    """apply_amendments() with VerificationResult.inventory='X' overwrites AuditReport.inventory."""
+    report = AuditReport(inventory="", structure_observation="")
+    result = VerificationResult(
+        inventory="Nav bar, hero CTA",
+        structure_observation="2-column grid",
+    )
+    amended = apply_amendments(report, result)
+    assert amended.inventory == "Nav bar, hero CTA"
+    assert amended.structure_observation == "2-column grid"
+
+
+# ---------------------------------------------------------------------------
+# Test 18: apply_amendments does not overwrite when VerificationResult fields are None
+# ---------------------------------------------------------------------------
+
+def test_apply_amendments_does_not_overwrite_inventory_when_none():
+    """apply_amendments() with VerificationResult.inventory=None leaves AuditReport.inventory unchanged."""
+    report = AuditReport(inventory="Original inventory", structure_observation="Original SO")
+    result = VerificationResult()  # inventory=None, structure_observation=None
+    amended = apply_amendments(report, result)
+    assert amended.inventory == "Original inventory"
+    assert amended.structure_observation == "Original SO"

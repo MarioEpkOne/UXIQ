@@ -120,7 +120,8 @@ def render(
     if report.parse_warnings:
         lines.append("---")
         lines.append("")
-        lines.append("⚠️ Claude returned a malformed response — some tiers may be missing.")
+        warnings_text = "; ".join(report.parse_warnings)
+        lines.append(f"⚠️ Parse warning: {warnings_text}")
         lines.append("")
 
     # --- Footer ---

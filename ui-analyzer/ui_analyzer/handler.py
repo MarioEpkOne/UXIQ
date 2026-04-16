@@ -13,6 +13,7 @@ import base64
 import ipaddress
 import logging
 import os
+import re
 import socket
 from urllib.parse import urlparse
 
@@ -33,6 +34,9 @@ from ui_analyzer.verifier import run_verification
 from ui_analyzer.run_writer import RunUsage, write_run
 from ui_analyzer.scorer import compute
 from ui_analyzer.xml_parser import parse
+
+# Regex-tolerant search for <audit_report> open tag (handles attributed variants)
+_AUDIT_REPORT_OPEN_RE = re.compile(r"<audit_report(?:\s[^>]*)?>")
 
 logger = logging.getLogger(__name__)
 
@@ -303,6 +307,14 @@ def analyze_ui_screenshot(
     # 9. Parse Claude's XML response
     audit_report = parse(raw_text)
 
+    # 9b. Log raw response head if primary parse failed (diagnostic for future debugging)
+    if audit_report.parse_warnings:
+        logger.warning(
+            "Primary parse failed (%s) — raw response head: %.500s",
+            audit_report.parse_warnings,
+            raw_text,
+        )
+
     # 9a. Warn if inventory is empty — verifier will be instructed to populate it
     if not audit_report.inventory:
         logger.warning(
@@ -400,9 +412,10 @@ def _extract_preamble(raw: str) -> str:
     """Return any text Claude wrote before <audit_report>, stripped.
 
     Returns '' if there is no such text or if the string is empty.
+    Handles attributed variants like <audit_report version="1">.
     """
-    start = raw.find("<audit_report>")
-    if start == -1:
+    m = _AUDIT_REPORT_OPEN_RE.search(raw)
+    if not m:
         # No XML block at all — treat entire response as preamble.
         return raw.strip()
-    return raw[:start].strip()
+    return raw[:m.start()].strip()
