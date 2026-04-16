@@ -1,7 +1,7 @@
 """handler.py — Public entry point for the ui-analyzer tool.
 
 Public interface:
-    analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True) -> str
+    analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True, progress: ProgressCallback | None = None) -> str
 
 Returns a Markdown audit report. Raises UIAnalyzerError on hard failures.
 Never raises on axe-core failure, malformed XML, or partial Claude output.
