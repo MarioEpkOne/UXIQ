@@ -1,5 +1,10 @@
-<!-- last-commit: 1b196459194c0849e7e9b4ad15a5b47d00520fd4 -->
+<!-- last-commit: 22a22414e1b2ed3294e0c40052d18d2d99466450 -->
 # Patch Notes
+
+## v0.7.0 — 2026-04-16
+
+### pass Claude preamble through to final Markdown output
+When Claude prepends explanatory prose before the `<audit_report>` XML block (e.g. a disclaimer that the image is not a UI screenshot), that text was previously discarded by the XML parser and never reached the caller. This adds `_extract_preamble()` to `handler.py` to capture any text before the XML block and prepend it to the rendered Markdown report with a blank-line separator. Whitespace-only preambles are suppressed; responses with no `<audit_report>` at all have their entire content surfaced as the preamble. Three new unit tests cover these paths and the existing preamble assertion is fully restored.
 
 ## v0.6.0 — 2026-04-15
 
