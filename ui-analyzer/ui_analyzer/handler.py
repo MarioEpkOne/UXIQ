@@ -136,17 +136,21 @@ def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
     except anthropic.RateLimitError:
         raise UIAnalyzerError("Anthropic API rate limit hit. Retry after a moment.")
 
-    # 8. Parse Claude's XML response
-    audit_report = parse(response.content[0].text)
+    # 8. Extract preamble (text before <audit_report>) from raw response
+    raw_text = response.content[0].text
+    preamble = _extract_preamble(raw_text)
 
-    # 9. Compute scores
+    # 9. Parse Claude's XML response
+    audit_report = parse(raw_text)
+
+    # 10. Compute scores
     scores = compute(audit_report)
 
-    # 10. Determine axe_succeeded flag
+    # 11. Determine axe_succeeded flag
     axe_succeeded = isinstance(axe_result, AxeCoreResult)
 
-    # 11. Render and return Markdown report
-    return render(
+    # 12. Render Markdown report
+    output = render(
         report=audit_report,
         scores=scores,
         app_type=req.app_type,
@@ -154,6 +158,12 @@ def analyze_ui_screenshot(image_source: str, app_type: str) -> str:
         axe_succeeded=axe_succeeded,
         model=MODEL,
     )
+
+    # 13. Prepend preamble if present
+    if preamble:
+        output = preamble + "\n\n" + output
+
+    return output
 
 
 # ---------------------------------------------------------------------------
@@ -181,3 +191,15 @@ def _media_type(image_source: str) -> str:
     if lower.endswith(".webp"):
         return "image/webp"
     return "image/png"
+
+
+def _extract_preamble(raw: str) -> str:
+    """Return any text Claude wrote before <audit_report>, stripped.
+
+    Returns '' if there is no such text or if the string is empty.
+    """
+    start = raw.find("<audit_report>")
+    if start == -1:
+        # No XML block at all — treat entire response as preamble.
+        return raw.strip()
+    return raw[:start].strip()

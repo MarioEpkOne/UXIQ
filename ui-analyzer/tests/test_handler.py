@@ -301,9 +301,73 @@ def test_handler_non_ui_preamble_passes_through(fixtures_dir, mocker):
     result = analyze_ui_screenshot(f"{fixtures_dir}/dashboard_good.png", "web_dashboard")
 
     assert isinstance(result, str)
-    # Does not raise — preamble prose before <audit_report> is stripped by xml_parser;
-    # the valid XML block is extracted and rendered normally.
+    assert "⚠️ The provided image does not appear to be a web UI" in result
     assert "## Tier 1" in result
+
+
+# ---------------------------------------------------------------------------
+# Unit: no preamble → output starts with "# UI Analysis Report" (no leading blank lines)
+# ---------------------------------------------------------------------------
+
+def test_handler_no_preamble_output_unchanged(fixtures_dir, mocker):
+    """Response starting directly with <audit_report> → output is unchanged (no extra whitespace prepended)."""
+    mocker.patch(
+        "ui_analyzer.handler.resolve",
+        return_value=_make_resolved_file(),
+    )
+    mock_create = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
+    mock_create.return_value.messages.create.return_value = _make_claude_response(
+        MINIMAL_VALID_XML
+    )
+
+    result = analyze_ui_screenshot(f"{fixtures_dir}/dashboard_good.png", "web_dashboard")
+
+    assert result.startswith("# UI Analysis Report")
+
+
+# ---------------------------------------------------------------------------
+# Unit: whitespace-only preamble → suppressed, output starts with "# UI Analysis Report"
+# ---------------------------------------------------------------------------
+
+def test_handler_whitespace_only_preamble_not_prepended(fixtures_dir, mocker):
+    """Response with whitespace-only text before <audit_report> → preamble suppressed."""
+    WHITESPACE_PREAMBLE_XML = "   \n\n" + MINIMAL_VALID_XML
+
+    mocker.patch(
+        "ui_analyzer.handler.resolve",
+        return_value=_make_resolved_file(),
+    )
+    mock_create = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
+    mock_create.return_value.messages.create.return_value = _make_claude_response(
+        WHITESPACE_PREAMBLE_XML
+    )
+
+    result = analyze_ui_screenshot(f"{fixtures_dir}/dashboard_good.png", "web_dashboard")
+
+    assert result.startswith("# UI Analysis Report")
+
+
+# ---------------------------------------------------------------------------
+# Unit: no <audit_report> at all → entire response is preamble; malformed warning also shown
+# ---------------------------------------------------------------------------
+
+def test_handler_no_xml_preamble_shown(fixtures_dir, mocker):
+    """Response with no <audit_report> tag → entire response used as preamble; malformed warning present."""
+    NO_XML_RESPONSE = "I cannot analyze this image."
+
+    mocker.patch(
+        "ui_analyzer.handler.resolve",
+        return_value=_make_resolved_file(),
+    )
+    mock_create = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
+    mock_create.return_value.messages.create.return_value = _make_claude_response(
+        NO_XML_RESPONSE
+    )
+
+    result = analyze_ui_screenshot(f"{fixtures_dir}/dashboard_good.png", "web_dashboard")
+
+    assert result.startswith("I cannot analyze this image.")
+    assert "⚠️" in result or "malformed" in result.lower() or "warning" in result.lower()
 
 
 # ---------------------------------------------------------------------------
