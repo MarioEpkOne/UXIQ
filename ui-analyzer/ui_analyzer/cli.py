@@ -15,8 +15,10 @@ from importlib.metadata import version, PackageNotFoundError
 from pydantic import ValidationError
 
 from ui_analyzer.exceptions import UIAnalyzerError
+from ui_analyzer.config import MODEL_ALIASES, get_model, set_model
 
 VALID_APP_TYPES = ["forms", "landing_page", "onboarding_flow", "web_dashboard"]
+VALID_MODEL_ALIASES = sorted(MODEL_ALIASES.keys())
 
 
 # ---------------------------------------------------------------------------
@@ -74,12 +76,33 @@ def main() -> None:
 
 
 def _cmd_analyze(args: argparse.Namespace) -> None:
-    """Handle `uxiq analyze <image_source> --app-type <type> [-o <path>] [-q]`."""
+    """Handle `uxiq analyze <image_source> --app-type <type> [-o <path>] [-q] [--model]`."""
     from ui_analyzer.handler import analyze_ui_screenshot
+
+    # Resolve --model flag
+    model_arg: str | None = getattr(args, "model", None)
+    resolved_model: str | None = None
+    if model_arg is not None:
+        if model_arg in MODEL_ALIASES:
+            resolved_model = MODEL_ALIASES[model_arg]
+        elif model_arg.startswith("claude-"):
+            # Accept full model IDs as-is
+            resolved_model = model_arg
+        else:
+            print(
+                f'Unknown model: "{model_arg}". Valid: {", ".join(VALID_MODEL_ALIASES)}.',
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     progress = None if args.quiet else StderrProgress()
     try:
-        report = analyze_ui_screenshot(args.image_source, args.app_type, progress=progress)
+        report = analyze_ui_screenshot(
+            args.image_source,
+            args.app_type,
+            progress=progress,
+            model=resolved_model,
+        )
     except ValidationError as exc:
         # Invalid app_type value — rejected by pydantic before any API call
         app_type_val = args.app_type
@@ -105,6 +128,48 @@ def _cmd_analyze(args: argparse.Namespace) -> None:
         print(f"Report saved to {args.output}", file=sys.stderr)
     else:
         print(report)
+
+
+def _cmd_model_show(args: argparse.Namespace) -> None:
+    """Handle `uxiq model` — print current model alias + full ID."""
+    import json
+    from pathlib import Path
+
+    config_path = Path.home() / ".uxiq" / "config.json"
+    has_config = False
+    stored_alias: str | None = None
+
+    if config_path.exists():
+        try:
+            with config_path.open(encoding="utf-8") as fh:
+                data = json.load(fh)
+            stored_alias = data.get("model")
+            if stored_alias in MODEL_ALIASES:
+                has_config = True
+        except Exception:
+            pass
+
+    if has_config and stored_alias is not None:
+        full_id = MODEL_ALIASES[stored_alias]
+        print(f"current model: {full_id} ({stored_alias})")
+    else:
+        from ui_analyzer.config import DEFAULT_MODEL_ALIAS
+        full_id = MODEL_ALIASES[DEFAULT_MODEL_ALIAS]
+        print(f"current model: {full_id} ({DEFAULT_MODEL_ALIAS}, default)")
+
+
+def _cmd_model_set(args: argparse.Namespace) -> None:
+    """Handle `uxiq model set <alias>` — write alias to config."""
+    alias: str = args.alias
+    if alias not in MODEL_ALIASES:
+        print(
+            f'Unknown model: "{alias}". Valid: {", ".join(VALID_MODEL_ALIASES)}.',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    set_model(alias)
+    full_id = MODEL_ALIASES[alias]
+    print(f"Model set to: {full_id} ({alias})")
 
 
 def _cmd_list_app_types(args: argparse.Namespace) -> None:
@@ -161,7 +226,41 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Suppress progress output. Useful for scripting and CI.",
     )
+    analyze_parser.add_argument(
+        "--model", "-m",
+        dest="model",
+        default=None,
+        metavar="MODEL",
+        help=(
+            f"Override the model for this run. "
+            f"One of: {', '.join(VALID_MODEL_ALIASES)}. "
+            "Accepts an alias (e.g. 'sonnet') or a full model ID. "
+            "If omitted, the model from `uxiq model` (or the default) is used."
+        ),
+    )
     analyze_parser.set_defaults(func=_cmd_analyze)
+
+    # uxiq model
+    model_parser = subparsers.add_parser(
+        "model",
+        help="Show or set the default model.",
+    )
+    model_subparsers = model_parser.add_subparsers(dest="model_subcommand")
+
+    # uxiq model set <alias>
+    model_set_parser = model_subparsers.add_parser(
+        "set",
+        help="Set the persistent default model.",
+    )
+    model_set_parser.add_argument(
+        "alias",
+        metavar="ALIAS",
+        help=f"Model alias. One of: {', '.join(VALID_MODEL_ALIASES)}.",
+    )
+    model_set_parser.set_defaults(func=_cmd_model_set)
+
+    # uxiq model (no subcommand) → show
+    model_parser.set_defaults(func=_cmd_model_show)
 
     # uxiq list-app-types
     list_parser = subparsers.add_parser(

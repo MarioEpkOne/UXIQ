@@ -34,6 +34,7 @@ from ui_analyzer.verifier import run_verification
 from ui_analyzer.run_writer import RunUsage, write_run
 from ui_analyzer.scorer import compute
 from ui_analyzer.xml_parser import parse
+from ui_analyzer import config as _config
 
 # Regex-tolerant search for <audit_report> open tag (handles attributed variants)
 _AUDIT_REPORT_OPEN_RE = re.compile(r"<audit_report(?:\s[^>]*)?>")
@@ -101,7 +102,6 @@ class ProgressCallback(Protocol):
     def stage_start(self, stage: str, label: str) -> None: ...
     def stage_end(self, stage: str, label: str, elapsed: float, detail: str = "") -> None: ...
 
-MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 16_384
 API_TIMEOUT_S = 180
 
@@ -143,6 +143,8 @@ def analyze_ui_screenshot(
     app_type: str,
     verify: bool = True,
     progress: ProgressCallback | None = None,
+    *,
+    model: str | None = None,
 ) -> str:
     """Orchestrate a full UI analysis and return a Markdown report.
 
@@ -157,6 +159,9 @@ def analyze_ui_screenshot(
             stage_end are called at each pipeline stage boundary. When None
             (default), no progress output is produced and existing callers
             are unaffected.
+        model: Full model ID to use for this run. If None (default), reads from
+            ~/.uxiq/config.json (or falls back to the built-in default, claude-sonnet-4-6).
+            Existing callers that do not pass this argument are unaffected.
 
     Returns:
         str — Markdown report. Always a string on soft failure (axe failure,
@@ -177,6 +182,9 @@ def analyze_ui_screenshot(
     # 1. Guard: API key must be set before any work begins
     if not os.getenv("UXIQ_ANTHROPIC_API_KEY"):
         raise UIAnalyzerError("UXIQ_ANTHROPIC_API_KEY environment variable is not set.")
+
+    # 1b. Resolve model — use explicit arg or read from config
+    _model = model if model is not None else _config.get_model()
 
     # 0b. SSRF guard — raises UIAnalyzerError for internal/loopback/link-local addresses
     _check_ssrf(req.image_source)
@@ -273,7 +281,7 @@ def analyze_ui_screenshot(
     _t0 = _time.monotonic()
     try:
         response = client.messages.create(
-            model=MODEL,
+            model=_model,
             max_tokens=MAX_TOKENS,
             timeout=API_TIMEOUT_S,
             system=system_cacheable,
@@ -334,6 +342,7 @@ def analyze_ui_screenshot(
             user_content=user_content_cacheable,
             primary_raw_text=raw_text,
             audit_report=audit_report,
+            model=_model,
         )
         if progress is not None:
             progress.stage_end("verify", "Verification complete", _time.monotonic() - _t0)
@@ -351,7 +360,7 @@ def analyze_ui_screenshot(
         app_type=req.app_type,
         image_source=req.image_source,
         axe_succeeded=axe_succeeded,
-        model=MODEL,
+        model=_model,
     )
 
     # 12b. Write per-run debug file (soft failure — never raises)
@@ -368,7 +377,7 @@ def analyze_ui_screenshot(
     write_run(
         url=req.image_source,
         app_type=req.app_type,
-        model=MODEL,
+        model=_model,
         report=audit_report,
         rendered_output=output,
         usage=run_usage,

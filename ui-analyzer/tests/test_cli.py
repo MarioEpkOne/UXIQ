@@ -289,3 +289,128 @@ def test_no_quiet_flag_creates_stderr_progress(mocker):
                 cli._cmd_analyze(args)
 
     assert "Done" in captured.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# uxiq model — show current model (default, no config)
+# ---------------------------------------------------------------------------
+
+def test_model_show_default(tmp_path):
+    """uxiq model with no config → prints default model with '(sonnet, default)'."""
+    env = os.environ.copy()
+    # Point config to a nonexistent file so no stored config is found
+    env["HOME"] = str(tmp_path)
+    result = subprocess.run(
+        CLI_MODULE + ["model"],
+        capture_output=True, text=True, env=env,
+    )
+    assert result.returncode == 0
+    assert "claude-sonnet-4-6" in result.stdout
+    assert "sonnet" in result.stdout
+    assert "default" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# uxiq model set opus — writes config and prints confirmation
+# ---------------------------------------------------------------------------
+
+def test_model_set_opus(tmp_path):
+    """uxiq model set opus → exit 0, prints 'Model set to: claude-opus-4-6 (opus)'."""
+    env = os.environ.copy()
+    env["HOME"] = str(tmp_path)
+    result = subprocess.run(
+        CLI_MODULE + ["model", "set", "opus"],
+        capture_output=True, text=True, env=env,
+    )
+    assert result.returncode == 0
+    assert "claude-opus-4-6" in result.stdout
+    assert "opus" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# uxiq model set bad — unknown alias → exit 1 with error message
+# ---------------------------------------------------------------------------
+
+def test_model_set_bad_alias_exits_1(tmp_path):
+    """uxiq model set bad → exit 1, stderr contains 'Unknown model'."""
+    env = os.environ.copy()
+    env["HOME"] = str(tmp_path)
+    result = subprocess.run(
+        CLI_MODULE + ["model", "set", "bad"],
+        capture_output=True, text=True, env=env,
+    )
+    assert result.returncode == 1
+    assert "Unknown model" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# uxiq analyze --model opus passes correct model ID to handler
+# ---------------------------------------------------------------------------
+
+def test_analyze_model_flag_passes_full_model_id_to_handler(mocker):
+    """--model opus → analyze_ui_screenshot called with model='claude-opus-4-6'."""
+    from ui_analyzer import cli
+    import argparse
+
+    FAKE_REPORT = "# UI Analysis Report\n\nFake."
+
+    with patch("ui_analyzer.handler.analyze_ui_screenshot", return_value=FAKE_REPORT) as mock_analyze:
+        args = argparse.Namespace(
+            image_source="https://example.com",
+            app_type="web_dashboard",
+            output=None,
+            quiet=True,
+            model="opus",
+            func=cli._cmd_analyze,
+        )
+        import io
+        from contextlib import redirect_stdout
+        with redirect_stdout(io.StringIO()):
+            cli._cmd_analyze(args)
+
+    _, kwargs = mock_analyze.call_args
+    assert kwargs.get("model") == "claude-opus-4-6"
+
+
+# ---------------------------------------------------------------------------
+# uxiq analyze --model bad_alias → exit 1 with error message
+# ---------------------------------------------------------------------------
+
+def test_analyze_bad_model_alias_exits_1():
+    """uxiq analyze ... --model bad_alias → exit 1, stderr has 'Unknown model'."""
+    result = _run(
+        "analyze", "https://example.com",
+        "--app-type", "web_dashboard",
+        "--model", "bad_alias",
+    )
+    assert result.returncode == 1
+    assert "Unknown model" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# uxiq analyze (no --model) uses model from config
+# ---------------------------------------------------------------------------
+
+def test_analyze_no_model_flag_reads_from_config(mocker, tmp_path):
+    """uxiq analyze with no --model → model=None is passed to handler (handler reads config)."""
+    from ui_analyzer import cli
+    import argparse
+
+    FAKE_REPORT = "# UI Analysis Report\n\nFake."
+
+    with patch("ui_analyzer.handler.analyze_ui_screenshot", return_value=FAKE_REPORT) as mock_analyze:
+        args = argparse.Namespace(
+            image_source="https://example.com",
+            app_type="web_dashboard",
+            output=None,
+            quiet=True,
+            model=None,
+            func=cli._cmd_analyze,
+        )
+        import io
+        from contextlib import redirect_stdout
+        with redirect_stdout(io.StringIO()):
+            cli._cmd_analyze(args)
+
+    _, kwargs = mock_analyze.call_args
+    assert kwargs.get("model") is None

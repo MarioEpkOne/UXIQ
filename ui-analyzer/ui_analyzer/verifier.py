@@ -17,7 +17,6 @@ from ui_analyzer.xml_parser import AuditReport
 
 logger = logging.getLogger(__name__)
 
-MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 4096
 VERIFIER_TIMEOUT_S = 180
 
@@ -28,6 +27,7 @@ def run_verification(
     user_content: list[dict],
     primary_raw_text: str,
     audit_report: AuditReport,
+    model: str = "claude-sonnet-4-6",
 ) -> tuple[AuditReport, anthropic.types.Usage | None]:
     """Run the verifier call and return the amended AuditReport and token usage.
 
@@ -37,6 +37,9 @@ def run_verification(
         user_content: The primary user content list with cache_control applied.
         primary_raw_text: The full raw text output from the primary Claude call.
         audit_report: The AuditReport parsed from primary_raw_text.
+        model: Full model ID to use. Defaults to claude-sonnet-4-6. Always
+            passed explicitly by handler.py so the verifier uses the same model
+            as the primary call.
 
     Returns:
         (AuditReport, Usage | None) — always. If verification fails, returns a copy
@@ -44,7 +47,7 @@ def run_verification(
     """
     try:
         response = client.messages.create(
-            model=MODEL,
+            model=model,
             max_tokens=MAX_TOKENS,
             timeout=VERIFIER_TIMEOUT_S,
             system=system,

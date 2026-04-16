@@ -634,3 +634,52 @@ def test_extract_preamble_plain_tag():
     raw = "Preamble text.\n\n<audit_report><tier1_findings/></audit_report>"
     preamble = _extract_preamble(raw)
     assert preamble == "Preamble text."
+
+
+# ---------------------------------------------------------------------------
+# model parameter — explicit model ID is passed to the API
+# ---------------------------------------------------------------------------
+
+def test_explicit_model_passed_to_api(mocker):
+    """analyze_ui_screenshot(..., model='claude-opus-4-6') passes that model to client.messages.create."""
+    url = "https://example.com"
+
+    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
+    mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
+    mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)
+
+    analyze_ui_screenshot(url, "web_dashboard", model="claude-opus-4-6")
+
+    # The primary call is always the first call to messages.create
+    first_call_kwargs = mock_client.return_value.messages.create.call_args_list[0].kwargs
+    assert first_call_kwargs["model"] == "claude-opus-4-6"
+
+
+# ---------------------------------------------------------------------------
+# model parameter — None → config.get_model() is called
+# ---------------------------------------------------------------------------
+
+def test_no_model_arg_reads_from_config(mocker):
+    """analyze_ui_screenshot(...) with no model arg → config.get_model() is consulted."""
+    url = "https://example.com"
+
+    mocker.patch("ui_analyzer.handler.resolve", return_value=_make_resolved_url())
+    mocker.patch("ui_analyzer.handler.run_axe", return_value=AxeCoreResult(findings=[]))
+    mocker.patch("ui_analyzer.handler.extract_dom", return_value=DomElements(elements=[]))
+    mocker.patch("ui_analyzer.handler.write_run")
+    mock_client = mocker.patch("ui_analyzer.handler.anthropic.Anthropic")
+    mock_client.return_value.messages.create.return_value = _make_claude_response(MINIMAL_VALID_XML)
+
+    mock_get_model = mocker.patch(
+        "ui_analyzer.handler._config.get_model",
+        return_value="claude-haiku-4-5-20251001",
+    )
+
+    analyze_ui_screenshot(url, "web_dashboard")
+
+    mock_get_model.assert_called_once()
+    first_call_kwargs = mock_client.return_value.messages.create.call_args_list[0].kwargs
+    assert first_call_kwargs["model"] == "claude-haiku-4-5-20251001"
