@@ -418,13 +418,23 @@ def test_handler_no_xml_preamble_shown(mocker):
 @pytest.mark.integration
 @skip_if_no_key
 def test_full_analysis_url_web_dashboard():
-    """Integration: real URL analysis with web_dashboard → all four tier headers present."""
+    """Integration: real URL analysis with web_dashboard → all four tier headers present
+    and a debug file is written to runs/ containing the expected section headers."""
+    from pathlib import Path
+
     result = analyze_ui_screenshot("https://example.com", "web_dashboard")
     assert isinstance(result, str)
     assert "## Tier 1" in result
     assert "## Tier 2" in result
     assert "## Tier 3" in result
     assert "## Tier 4" in result
+
+    runs_dir = Path(__file__).parent.parent.parent / "runs"
+    files = list(runs_dir.glob("*.md"))
+    assert len(files) >= 1, f"Expected at least one debug file in {runs_dir}"
+    content = files[-1].read_text(encoding="utf-8")
+    assert "## What Claude Sees" in content
+    assert "## Full Analysis" in content
 
 
 @pytest.mark.integration
