@@ -163,7 +163,7 @@ def _parse_axe_result(raw: dict) -> AxeCoreResult:
     """Map raw axe JSON output to AxeCoreResult.
 
     Only 'violations' and 'passes' are used.
-    'incomplete' and 'inapplicable' are ignored.
+    Only 'incomplete' is ignored; 'inapplicable' is treated as PASS (added to passing_rules).
 
     For each supported criterion:
     - If any violation matches → AxeCriterionResult(result="FAIL", violations=[...])
