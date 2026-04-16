@@ -26,7 +26,7 @@ from ui_analyzer.prompt_builder import build_thread
 from ui_analyzer.prompts import SYSTEM_PROMPT
 from ui_analyzer.report_renderer import render
 from ui_analyzer.verifier import run_verification
-from ui_analyzer.run_writer import write_run
+from ui_analyzer.run_writer import RunUsage, write_run
 from ui_analyzer.scorer import compute
 from ui_analyzer.xml_parser import parse
 
@@ -174,6 +174,8 @@ def analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True)
     except anthropic.RateLimitError:
         raise UIAnalyzerError("Anthropic API rate limit hit. Retry after a moment.")
 
+    primary_usage = response.usage
+
     # 7b. Detect truncation before attempting any parsing
     if response.stop_reason == "max_tokens":
         raise UIAnalyzerError(
@@ -189,8 +191,9 @@ def analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True)
     audit_report = parse(raw_text)
 
     # 9.5. Verification pass — second Claude call that peer-reviews the primary output
+    verifier_usage = None
     if req.verify:
-        audit_report = run_verification(
+        audit_report, verifier_usage = run_verification(
             client=client,
             system=system_cacheable,
             user_content=user_content_cacheable,
@@ -215,12 +218,23 @@ def analyze_ui_screenshot(image_source: str, app_type: str, verify: bool = True)
     )
 
     # 12b. Write per-run debug file (soft failure — never raises)
+    run_usage = RunUsage(
+        primary_input_tokens=getattr(primary_usage, "input_tokens", 0),
+        primary_output_tokens=getattr(primary_usage, "output_tokens", 0),
+        primary_cache_write_tokens=getattr(primary_usage, "cache_creation_input_tokens", 0) or 0,
+        primary_cache_read_tokens=getattr(primary_usage, "cache_read_input_tokens", 0) or 0,
+        verifier_input_tokens=getattr(verifier_usage, "input_tokens", 0) if verifier_usage else 0,
+        verifier_output_tokens=getattr(verifier_usage, "output_tokens", 0) if verifier_usage else 0,
+        verifier_cache_write_tokens=getattr(verifier_usage, "cache_creation_input_tokens", 0) if verifier_usage else 0,
+        verifier_cache_read_tokens=getattr(verifier_usage, "cache_read_input_tokens", 0) if verifier_usage else 0,
+    )
     write_run(
         url=req.image_source,
         app_type=req.app_type,
         model=MODEL,
         report=audit_report,
         rendered_output=output,
+        usage=run_usage,
     )
 
     # 13. Prepend preamble if present

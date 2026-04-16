@@ -28,8 +28,8 @@ def run_verification(
     user_content: list[dict],
     primary_raw_text: str,
     audit_report: AuditReport,
-) -> AuditReport:
-    """Run the verifier call and return the amended AuditReport.
+) -> tuple[AuditReport, anthropic.types.Usage | None]:
+    """Run the verifier call and return the amended AuditReport and token usage.
 
     Args:
         client: Configured Anthropic client (shared with primary call).
@@ -39,8 +39,8 @@ def run_verification(
         audit_report: The AuditReport parsed from primary_raw_text.
 
     Returns:
-        AuditReport — always. If verification fails, returns a copy of audit_report
-        with a parse_warning appended.
+        (AuditReport, Usage | None) — always. If verification fails, returns a copy
+        of audit_report with a parse_warning appended, and None for usage.
     """
     try:
         response = client.messages.create(
@@ -58,18 +58,18 @@ def run_verification(
         logger.warning("Verifier call timed out: %s — skipping verification", exc)
         result = copy.deepcopy(audit_report)
         result.parse_warnings.append("Verification skipped: API timeout")
-        return result
+        return result, None
     except anthropic.RateLimitError as exc:
         logger.warning("Verifier call rate-limited: %s — skipping verification", exc)
         result = copy.deepcopy(audit_report)
         result.parse_warnings.append("Verification skipped: API rate limit")
-        return result
+        return result, None
     except Exception as exc:
         logger.warning("Verifier call failed unexpectedly: %s — skipping verification", exc)
         result = copy.deepcopy(audit_report)
         result.parse_warnings.append(f"Verification skipped: unexpected error ({exc})")
-        return result
+        return result, None
 
     verifier_raw = response.content[0].text
     verification_result: VerificationResult = parse(verifier_raw)
-    return apply_amendments(audit_report, verification_result)
+    return apply_amendments(audit_report, verification_result), response.usage

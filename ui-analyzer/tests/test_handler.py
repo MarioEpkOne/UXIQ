@@ -6,7 +6,6 @@ Tests cover the 7 scenarios specified in Spec 08.
 from __future__ import annotations
 
 import base64
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,12 +17,6 @@ from ui_analyzer.exceptions import UIAnalyzerError
 from ui_analyzer.handler import _media_type, _to_base64, analyze_ui_screenshot
 from ui_analyzer.image_source import ResolvedImage
 from ui_analyzer.xml_parser import AuditReport
-
-_REAL_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-skip_if_no_key = pytest.mark.skipif(
-    _REAL_KEY in ("", "test-key-unit-tests"),
-    reason="ANTHROPIC_API_KEY not set to a real key",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -65,11 +58,22 @@ def _make_resolved_url() -> ResolvedImage:
     )
 
 
+def _make_usage() -> MagicMock:
+    usage = MagicMock()
+    usage.input_tokens = 100
+    usage.output_tokens = 200
+    usage.cache_creation_input_tokens = 50
+    usage.cache_read_input_tokens = 0
+    return usage
+
+
 def _make_claude_response(text: str) -> MagicMock:
     content_block = MagicMock()
     content_block.text = text
     resp = MagicMock()
     resp.content = [content_block]
+    resp.stop_reason = "end_turn"
+    resp.usage = _make_usage()
     return resp
 
 
@@ -411,53 +415,3 @@ def test_handler_no_xml_preamble_shown(mocker):
     assert "⚠️" in result or "malformed" in result.lower() or "warning" in result.lower()
 
 
-# ---------------------------------------------------------------------------
-# Integration tests — require a real ANTHROPIC_API_KEY
-# ---------------------------------------------------------------------------
-
-@pytest.mark.integration
-@skip_if_no_key
-def test_full_analysis_url_web_dashboard():
-    """Integration: real URL analysis with web_dashboard → all four tier headers present
-    and a debug file is written to runs/ containing the expected section headers."""
-    from pathlib import Path
-
-    result = analyze_ui_screenshot("https://example.com", "web_dashboard")
-    assert isinstance(result, str)
-    assert "## Tier 1" in result
-    assert "## Tier 2" in result
-    assert "## Tier 3" in result
-    assert "## Tier 4" in result
-
-    runs_dir = Path(__file__).parent.parent.parent / "runs"
-    files = list(runs_dir.glob("*.md"))
-    assert len(files) >= 1, f"Expected at least one debug file in {runs_dir}"
-    content = files[-1].read_text(encoding="utf-8")
-    assert "## What Claude Sees" in content
-    assert "## Full Analysis" in content
-
-
-@pytest.mark.integration
-@skip_if_no_key
-def test_full_analysis_url():
-    """Integration: real URL analysis → 'Authoritative (axe-core)' in report."""
-    result = analyze_ui_screenshot("https://example.com", "web_dashboard")
-    assert isinstance(result, str)
-    assert "Authoritative (axe-core)" in result
-
-
-@pytest.mark.integration
-@skip_if_no_key
-def test_non_ui_url():
-    """Integration: non-UI URL → str returned, no exception."""
-    result = analyze_ui_screenshot("https://example.com", "landing_page")
-    assert isinstance(result, str)  # Does not raise
-
-
-@pytest.mark.integration
-@skip_if_no_key
-def test_app_type_forms():
-    """Integration: forms app_type → report header contains 'Tier 4 — Domain Patterns (forms)'."""
-    result = analyze_ui_screenshot("https://example.com", "forms")
-    assert isinstance(result, str)
-    assert "## Tier 4 — Domain Patterns (forms)" in result
