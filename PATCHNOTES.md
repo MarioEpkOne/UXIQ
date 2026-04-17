@@ -1,5 +1,22 @@
-<!-- last-commit: ed06315003cd893566b5a2964c8e0ef6e4d80f83 -->
+<!-- last-commit: 4f78e67a01bddd29288a693a9dea356edd3bc144 -->
 # Patch Notes
+
+## v0.11.0 — 2026-04-17
+
+### add CLI model selection — --model flag and uxiq model subcommand
+Adds per-run model override via `uxiq analyze --model <alias>` and a persistent `uxiq model [set <alias>]` subcommand backed by `~/.uxiq/config.json`. Hardcoded model constants are removed from `handler.py` and `verifier.py`, which now resolve the model at call time through the new `config.py`. Default behavior (claude-sonnet-4-6) is preserved for existing callers.
+
+### fix: 1 audit error resolved — _cmd_model_show now calls get_model_with_source()
+`_cmd_model_show` now delegates to a new `get_model_with_source()` in `config.py` instead of duplicating the JSON-read logic, so the corrupt/unknown-alias stderr warning fires when the user runs `uxiq model`. Fixes a quiet fallback that hid config problems from the CLI.
+
+### harden SYSTEM_PROMPT and VERIFIER_PROMPT for evidence-grounded findings
+Rewrites `SYSTEM_PROMPT` to enforce observation-only rules — no pattern completion, no inferred text, an explicit out-of-scope list for static screenshots, and a per-finding quality bar (element + criterion + justification). Restructures `VERIFIER_PROMPT` around a six-item review checklist with a `<blocking_issues>` escape hatch for incomplete inventories or widespread hallucination, making the verifier's rejections more predictable.
+
+### add 10 bug investigation reports for 2026-04-16
+Adds investigation docs for prompt injection, SSRF in the Playwright URL path, axe CDN integrity gaps, WCAG 2.2 tag handling, silent perfect-score truncation, empty audit report output, unevaluable focus findings, and pipeline worktree issues. Documentation-only — queues the items for triage rather than shipping fixes.
+
+### unified page capture — one Playwright session for screenshot + DOM + axe
+Replaces the three-independent-browsers pattern with a single `sync_playwright` session that runs goto → `document.fonts.ready` → 300 ms settle → screenshot → DOM extract → axe inject → axe run, in order, against the same page object. DOM extraction is now filtered to elements actually visible in the 1280×800 viewport, and each element carries integer bounding-box coordinates (`x`/`y` clamped, `w`/`h` unclamped) plus an `alt` field for images. The system prompt's DOM-authority section is rewritten to mark the DOM list as authoritative for what exists in the frame, with injection-defence language retained under a narrower heading. URL captures are now all-or-nothing — any sub-step failure raises `UIAnalyzerError` with an attribution prefix; file-path inputs are unchanged.
 
 ## v0.10.2 — 2026-04-16
 
