@@ -1,5 +1,16 @@
-<!-- last-commit: 4f78e67a01bddd29288a693a9dea356edd3bc144 -->
+<!-- last-commit: 9a7e05aa1bc856ca88aa14cfe85b0cfc75ff3367 -->
 # Patch Notes
+
+## v0.12.0 — 2026-04-17
+
+### add subdirectory CLAUDE.md files for ui_analyzer and rubric modules
+Drops focused CLAUDE.md files into `ui-analyzer/ui_analyzer/` and `ui-analyzer/ui_analyzer/rubric/` so future agents land in those directories with module-scoped guidance instead of relying solely on the project root. Docs-only change; no runtime effect.
+
+### document WSL2 shell env requirement for uxiq CLI
+Adds a WSL2 note to the project CLAUDE.md explaining that `UXIQ_ANTHROPIC_API_KEY` lives in `~/.bashrc` and non-login shells (like Claude Code sessions) do not source it automatically — prefix invocations with `source ~/.bashrc &&` or source it once before using `uxiq analyze`. Prevents a recurring "missing API key" footgun for CLI users running in non-interactive shells.
+
+### authoritative Tier 1 data — eliminate ESTIMATED flags for contrast & text size
+Replaces estimated Tier 1 contrast/text-size evidence with authoritative data captured at DOM time. The Playwright DOM extractor now broadens its selector (p/span/li/label/caption with a direct-text filter), emits per-element computed styles (font_size_px, font_weight, color, effective_bg_color, border_color, border_width_px), and pre-computes WCAG contrast ratios in JS (`text_contrast_ratio`, `ui_contrast_ratio`) so Claude no longer has to estimate them from a screenshot. Axe rule map is fixed (drops 3 IDs absent from the bundle; adds `link-in-text-block → 1.4.1`), the Tier 1 rubric is rescoped (body-text-size + 1.4.11 become authoritative, 1.4.1 narrows to link-in-text-block, 2.4.7 is removed as untestable from a static screenshot), and SYSTEM_PROMPT gains a Style-data subsection with evidence-gated criteria. `max_elements` default raised 300 → 500 to absorb the broadened selector. Covered by new unit + integration tests including literal WCAG contrast assertions (5.74 for #666-on-#fff, 1.61 for #ccc-on-#fff).
 
 ## v0.11.0 — 2026-04-17
 
