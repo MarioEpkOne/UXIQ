@@ -27,10 +27,8 @@ AXE_TIMEOUT_MS = 10_000  # 10 seconds for axe.run()
 # axe-core rule ID → WCAG criterion mapping (only the 4 criteria extracted)
 _RULE_TO_CRITERION: dict[str, str] = {
     "color-contrast": "1.4.3",
-    "non-text-contrast": "1.4.11",
     "target-size": "2.5.8",
-    "color-not-used-as-sole-meaning": "1.4.1",
-    "focus-visible": "2.4.7",
+    "link-in-text-block": "1.4.1",
 }
 
 # Supported criteria set (used to decide what to include in findings)

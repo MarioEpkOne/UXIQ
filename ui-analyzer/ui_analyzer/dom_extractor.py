@@ -46,6 +46,15 @@ class DomElement:
     y: int = 0        # viewport-pixel top, clamped to [0, 800]
     w: int = 0        # viewport-pixel width (unclamped — may exceed viewport)
     h: int = 0        # viewport-pixel height (unclamped — may exceed viewport)
+    # Authoritative style data (populated only by page_capture.py; extract_dom() leaves defaults).
+    font_size_px: float = 0.0
+    font_weight: int = 400
+    color: str = ""                            # CSS "rgb(R, G, B)" form
+    effective_bg_color: str = ""               # resolved ancestor background
+    border_color: str = ""                     # "" when no visible border
+    border_width_px: float = 0.0
+    text_contrast_ratio: float | None = None   # None when no text
+    ui_contrast_ratio: float | None = None     # None when not a UI component / no border
 
 
 @dataclass

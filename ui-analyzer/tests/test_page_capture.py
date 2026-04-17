@@ -23,11 +23,21 @@ _FAKE_DOM_ELEMENTS = [
         "tag": "button", "role": "", "text": "Sign up",
         "aria_label": "", "placeholder": "", "input_type": "",
         "alt": "", "x": 16, "y": 120, "w": 120, "h": 40,
+        "font_size_px": 16.0, "font_weight": 600,
+        "color": "rgb(255, 255, 255)",
+        "effective_bg_color": "rgb(37, 99, 235)",
+        "border_color": "", "border_width_px": 0,
+        "text_contrast_ratio": 8.59,
+        "ui_contrast_ratio": 3.76,
     },
     {
         "tag": "img", "role": "", "text": "",
         "aria_label": "", "placeholder": "", "input_type": "",
         "alt": "logo", "x": 8, "y": 4, "w": 64, "h": 64,
+        "font_size_px": 16.0, "font_weight": 400,
+        "color": "",
+        "effective_bg_color": "rgb(255, 255, 255)",
+        "border_color": "", "border_width_px": 0,
     },
 ]
 
@@ -138,6 +148,16 @@ def test_capture_page_happy_path(mocker):
     img = result.dom_elements[1]
     assert img.tag == "img"
     assert img.alt == "logo"
+    assert btn.font_size_px == 16.0
+    assert btn.font_weight == 600
+    assert btn.color == "rgb(255, 255, 255)"
+    assert btn.effective_bg_color == "rgb(37, 99, 235)"
+    assert btn.text_contrast_ratio == 8.59
+    assert btn.ui_contrast_ratio == 3.76
+    # img element: no text/ui contrast keys in fixture → Python None, not 0.0
+    assert img.text_contrast_ratio is None
+    assert img.ui_contrast_ratio is None
+    assert img.color == ""
 
 
 def test_capture_page_goto_timeout_raises(mocker):
@@ -218,6 +238,56 @@ def test_capture_page_dom_elements_dataclass_round_trip(mocker):
     assert el.placeholder == "you@example.com"
     assert el.input_type == "email"
     assert (el.x, el.y, el.w, el.h) == (16, 200, 240, 32)
+
+
+def test_capture_page_dom_payload_missing_optional_fields(mocker):
+    """DOM payload missing optional style keys → defaults populate; contrast fields default to None."""
+    raw_minimal = [{
+        "tag": "p", "role": "", "text": "hello",
+        "aria_label": "", "placeholder": "", "input_type": "",
+        "alt": "", "x": 0, "y": 0, "w": 100, "h": 20,
+        # font_size_px, font_weight, color, effective_bg_color, border fields:
+        # all deliberately absent from this payload.
+    }]
+    mock_cm = _make_mock_pw(dom_eval_result=raw_minimal)
+    mocker.patch("ui_analyzer.page_capture.sync_playwright", return_value=mock_cm)
+
+    result = capture_page("https://example.com")
+
+    el = result.dom_elements[0]
+    assert el.tag == "p"
+    assert el.font_size_px == 0.0
+    assert el.font_weight == 400
+    assert el.color == ""
+    assert el.effective_bg_color == ""
+    assert el.border_color == ""
+    assert el.border_width_px == 0.0
+    assert el.text_contrast_ratio is None
+    assert el.ui_contrast_ratio is None
+
+
+def test_capture_page_dom_payload_borderless_interactive(mocker):
+    """Button with no border but a ui_contrast_ratio from fill → DomElement.ui_contrast_ratio populated."""
+    raw = [{
+        "tag": "button", "role": "", "text": "Go",
+        "aria_label": "", "placeholder": "", "input_type": "",
+        "alt": "", "x": 0, "y": 0, "w": 80, "h": 32,
+        "font_size_px": 14.0, "font_weight": 500,
+        "color": "rgb(255, 255, 255)",
+        "effective_bg_color": "rgb(255, 255, 255)",
+        "border_color": "", "border_width_px": 0,
+        "text_contrast_ratio": 1.0,
+        "ui_contrast_ratio": 3.12,
+    }]
+    mock_cm = _make_mock_pw(dom_eval_result=raw)
+    mocker.patch("ui_analyzer.page_capture.sync_playwright", return_value=mock_cm)
+
+    result = capture_page("https://example.com")
+
+    el = result.dom_elements[0]
+    assert el.border_color == ""
+    assert el.border_width_px == 0.0
+    assert el.ui_contrast_ratio == 3.12
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +375,84 @@ def test_integration_axe_runs_on_same_page():
     """axe.run completes and produces an AxeCoreResult (may be empty)."""
     result = capture_page(_FIXTURE_URL)
     assert isinstance(result.axe_result, AxeCoreResult)
+
+
+@pytest.mark.enable_socket
+@pytestmark_chromium
+def test_integration_subtext_style_fields_populated():
+    """#subtext <p>: font_size_px=14.0, color=rgb(102,102,102), bg=rgb(255,255,255), contrast~5.74."""
+    result = capture_page(_FIXTURE_URL)
+    subtext = next(
+        (e for e in result.dom_elements if e.tag == "p" and e.text == "Muted subtext"),
+        None,
+    )
+    assert subtext is not None, "subtext <p> missing from DOM payload"
+    assert abs(subtext.font_size_px - 14.0) < 0.01
+    assert subtext.color == "rgb(102, 102, 102)"
+    assert subtext.effective_bg_color == "rgb(255, 255, 255)"
+    assert subtext.text_contrast_ratio is not None
+    # WCAG formula for #666 on #fff ~= 5.74
+    assert abs(subtext.text_contrast_ratio - 5.74) < 0.05
+
+
+@pytest.mark.enable_socket
+@pytestmark_chromium
+def test_integration_badge_span_captured_with_direct_text():
+    """#badge <span> has direct text → present; font_weight=600, font_size_px=13.0."""
+    result = capture_page(_FIXTURE_URL)
+    badge = next(
+        (e for e in result.dom_elements if e.tag == "span" and e.text == "Version 2"),
+        None,
+    )
+    assert badge is not None, "badge <span> missing from DOM payload"
+    assert abs(badge.font_size_px - 13.0) < 0.01
+    assert badge.font_weight == 600
+
+
+@pytest.mark.enable_socket
+@pytestmark_chromium
+def test_integration_outlined_button_ui_contrast():
+    """#outlined button: border_color=rgb(204,204,204), border_width_px=1.0, ui_contrast~1.61."""
+    result = capture_page(_FIXTURE_URL)
+    outlined = next(
+        (e for e in result.dom_elements if e.tag == "button" and e.text == "Outlined"),
+        None,
+    )
+    assert outlined is not None, "outlined button missing from DOM payload"
+    assert outlined.border_color == "rgb(204, 204, 204)"
+    assert abs(outlined.border_width_px - 1.0) < 0.01
+    assert outlined.ui_contrast_ratio is not None
+    # WCAG formula for #ccc (border) on #fff (bg) ~= 1.61
+    assert abs(outlined.ui_contrast_ratio - 1.61) < 0.05
+
+
+@pytest.mark.enable_socket
+@pytestmark_chromium
+def test_integration_inline_anchor_has_no_ui_contrast():
+    """#inline-link <a> (no border, not in UI_COMPONENT_TAGS): border_color='', ui_contrast_ratio is None."""
+    result = capture_page(_FIXTURE_URL)
+    link = next(
+        (e for e in result.dom_elements if e.tag == "a" and e.text == "inline link"),
+        None,
+    )
+    assert link is not None, "inline link missing from DOM payload"
+    assert link.border_color == ""
+    assert link.border_width_px == 0.0
+    assert link.ui_contrast_ratio is None
+
+
+@pytest.mark.enable_socket
+@pytestmark_chromium
+def test_integration_wrapper_span_without_direct_text_filtered_out():
+    """#wrapper-only <span> wraps an <em> only — no direct text → excluded from output."""
+    result = capture_page(_FIXTURE_URL)
+    # The wrapper span has inner text 'nested' (via <em>) but no direct text node.
+    # Our JS filter must exclude it.
+    wrapper = next(
+        (e for e in result.dom_elements if e.tag == "span" and e.text == "nested"),
+        None,
+    )
+    assert wrapper is None, "wrapper span with no direct text must be filtered out"
 
 
 # ---------------------------------------------------------------------------

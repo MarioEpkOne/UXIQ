@@ -186,39 +186,47 @@ def test_run_axe_js_contains_wcag22aa_tag(mocker):
 
 
 # ---------------------------------------------------------------------------
-# Tests for focus-visible mapping (Fix Group 4B)
+# Tests for link-in-text-block mapping (authoritative-tier1-data spec)
 # ---------------------------------------------------------------------------
 
-def test_focus_visible_in_rule_to_criterion_maps_to_2_4_7():
-    """focus-visible entry in _RULE_TO_CRITERION maps to criterion '2.4.7'."""
+def test_link_in_text_block_in_rule_to_criterion_maps_to_1_4_1():
+    """link-in-text-block entry in _RULE_TO_CRITERION maps to criterion '1.4.1'."""
     from ui_analyzer.axe_runner import _RULE_TO_CRITERION
-    assert _RULE_TO_CRITERION.get("focus-visible") == "2.4.7"
+    assert _RULE_TO_CRITERION.get("link-in-text-block") == "1.4.1"
 
 
-def test_parse_axe_result_focus_visible_inapplicable_gives_pass():
-    """focus-visible in inapplicable → PASS finding for criterion 2.4.7."""
+def test_rule_to_criterion_does_not_contain_removed_fake_ids():
+    """Removed rule IDs that never matched axe output must be absent from the map."""
+    from ui_analyzer.axe_runner import _RULE_TO_CRITERION
+    assert "non-text-contrast" not in _RULE_TO_CRITERION
+    assert "color-not-used-as-sole-meaning" not in _RULE_TO_CRITERION
+    assert "focus-visible" not in _RULE_TO_CRITERION
+
+
+def test_parse_axe_result_link_in_text_block_inapplicable_gives_pass():
+    """link-in-text-block in inapplicable → PASS finding for criterion 1.4.1."""
     from ui_analyzer.axe_runner import _parse_axe_result
 
     raw = {
         "violations": [],
         "passes": [],
-        "inapplicable": [{"id": "focus-visible"}],
+        "inapplicable": [{"id": "link-in-text-block"}],
     }
     result = _parse_axe_result(raw)
     criterion_results = {f.criterion: f.result for f in result.findings}
-    assert criterion_results.get("2.4.7") == "PASS"
+    assert criterion_results.get("1.4.1") == "PASS"
 
 
-def test_parse_axe_result_focus_visible_violation_gives_fail():
-    """focus-visible in violations → FAIL finding for criterion 2.4.7."""
+def test_parse_axe_result_link_in_text_block_violation_gives_fail():
+    """link-in-text-block in violations → FAIL finding for criterion 1.4.1."""
     from ui_analyzer.axe_runner import _parse_axe_result
 
     raw = {
         "violations": [
             {
-                "id": "focus-visible",
-                "description": "Elements must have visible focus",
-                "nodes": [{"target": [".nav-link"], "any": []}],
+                "id": "link-in-text-block",
+                "description": "Links must be distinguishable without relying on colour",
+                "nodes": [{"target": ["a.read-more"], "any": []}],
             }
         ],
         "passes": [],
@@ -226,21 +234,21 @@ def test_parse_axe_result_focus_visible_violation_gives_fail():
     }
     result = _parse_axe_result(raw)
     criterion_results = {f.criterion: f.result for f in result.findings}
-    assert criterion_results.get("2.4.7") == "FAIL"
+    assert criterion_results.get("1.4.1") == "FAIL"
 
 
-def test_parse_axe_result_focus_visible_passes_gives_pass():
-    """focus-visible in passes → PASS finding for criterion 2.4.7."""
+def test_parse_axe_result_link_in_text_block_passes_gives_pass():
+    """link-in-text-block in passes → PASS finding for criterion 1.4.1."""
     from ui_analyzer.axe_runner import _parse_axe_result
 
     raw = {
         "violations": [],
-        "passes": [{"id": "focus-visible"}],
+        "passes": [{"id": "link-in-text-block"}],
         "inapplicable": [],
     }
     result = _parse_axe_result(raw)
     criterion_results = {f.criterion: f.result for f in result.findings}
-    assert criterion_results.get("2.4.7") == "PASS"
+    assert criterion_results.get("1.4.1") == "PASS"
 
 
 # ---------------------------------------------------------------------------

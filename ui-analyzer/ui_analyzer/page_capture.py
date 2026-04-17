@@ -1,7 +1,7 @@
 """page_capture.py — unified Playwright capture: screenshot + DOM + axe in one session.
 
 Public interface:
-    capture_page(url: str, *, max_elements: int = 300,
+    capture_page(url: str, *, max_elements: int = 500,
                  goto_timeout_ms: int = 30_000,
                  step_timeout_ms: int = 10_000) -> PageCapture
 
@@ -41,7 +41,9 @@ _AXE_JS = (pathlib.Path(__file__).parent / "vendor" / "axe.min.js").read_text(en
 _DOM_JS = r"""
 (maxElements) => {
   const VW = 1280, VH = 800;
-  const SEL = 'button, a, input, select, textarea, h1, h2, h3, h4, h5, h6, img, [role]';
+  const SEL = 'button, a, input, select, textarea, h1, h2, h3, h4, h5, h6, ' +
+              'img, [role], p, span, li, label, caption';
+
   const isVisible = (r, cs) => (
     r.right > 0 && r.left < VW && r.bottom > 0 && r.top < VH &&
     r.width > 0 && r.height > 0 &&
@@ -49,25 +51,120 @@ _DOM_JS = r"""
     cs.visibility !== 'hidden' &&
     parseFloat(cs.opacity) > 0
   );
+
+  // p/span/li/caption are included only when they carry direct text.
+  // label is always included (even when text is wrapped in a descendant).
+  const TEXT_BLOCK_TAGS = new Set(['p', 'span', 'li', 'caption']);
+  const hasDirectText = (el) => {
+    for (const n of el.childNodes) {
+      if (n.nodeType === Node.TEXT_NODE && n.textContent.trim().length > 0) return true;
+    }
+    return false;
+  };
+
+  // Parse "rgb(r, g, b)" or "rgba(r, g, b, a)" — return null when fully transparent.
+  const parseRgb = (s) => {
+    const m = s && s.match(/rgba?\(([^)]+)\)/);
+    if (!m) return null;
+    const p = m[1].split(',').map(x => parseFloat(x.trim()));
+    const a = p.length === 4 ? p[3] : 1;
+    if (a === 0) return null;
+    return { r: p[0], g: p[1], b: p[2], a };
+  };
+
+  // Walk up the parent chain; return first non-transparent background.
+  // Fall back to white if the chain terminates without one.
+  const effectiveBg = (el) => {
+    let cur = el.parentElement;
+    while (cur) {
+      const c = parseRgb(getComputedStyle(cur).backgroundColor);
+      if (c && c.a > 0) return c;
+      cur = cur.parentElement;
+    }
+    return { r: 255, g: 255, b: 255, a: 1 };
+  };
+
+  // WCAG 2.1 relative luminance (sRGB → linearised).
+  const luminance = (c) => {
+    const f = (v) => {
+      const s = v / 255;
+      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+  };
+
+  // Contrast ratio, rounded to two decimals.
+  const contrast = (a, b) => {
+    const L1 = Math.max(luminance(a), luminance(b));
+    const L2 = Math.min(luminance(a), luminance(b));
+    return Math.round(((L1 + 0.05) / (L2 + 0.05)) * 100) / 100;
+  };
+
+  const rgbToStr = (c) => `rgb(${c.r}, ${c.g}, ${c.b})`;
+
+  const UI_COMPONENT_TAGS = new Set(['button', 'input', 'select', 'textarea']);
+
   const out = [];
   for (const el of document.querySelectorAll(SEL)) {
     if (out.length >= maxElements) break;
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
     if (!isVisible(r, cs)) continue;
-    out.push({
-      tag: el.tagName.toLowerCase(),
+
+    const tag = el.tagName.toLowerCase();
+    if (TEXT_BLOCK_TAGS.has(tag) && !hasDirectText(el)) continue;
+
+    const text = (el.innerText || el.value || '').trim().slice(0, 120);
+    const color = parseRgb(cs.color);
+    const bg = effectiveBg(el);
+    const borderColor = parseRgb(cs.borderTopColor);
+    const borderWidth = parseFloat(cs.borderTopWidth) || 0;
+    const borderStyle = cs.borderTopStyle;
+
+    const elem = {
+      tag,
       role: el.getAttribute('role') || '',
-      text: (el.innerText || el.value || '').trim().slice(0, 120),
+      text,
       aria_label: el.getAttribute('aria-label') || '',
       placeholder: el.getAttribute('placeholder') || '',
-      input_type: el.tagName.toLowerCase() === 'input' ? (el.type || '') : '',
-      alt: el.tagName.toLowerCase() === 'img' ? (el.getAttribute('alt') || '') : '',
+      input_type: tag === 'input' ? (el.type || '') : '',
+      alt: tag === 'img' ? (el.getAttribute('alt') || '') : '',
       x: Math.max(0, Math.min(VW, Math.round(r.left))),
       y: Math.max(0, Math.min(VH, Math.round(r.top))),
       w: Math.round(r.width),
       h: Math.round(r.height),
-    });
+      font_size_px: Math.round(parseFloat(cs.fontSize) * 10) / 10 || 0,
+      font_weight: parseInt(cs.fontWeight, 10) || 400,
+      color: color ? rgbToStr(color) : '',
+      effective_bg_color: rgbToStr(bg),
+      border_color: '',
+      border_width_px: 0,
+    };
+
+    const hasVisibleBorder =
+      borderWidth > 0 &&
+      borderStyle !== 'none' &&
+      borderStyle !== 'hidden' &&
+      borderColor !== null;
+    if (hasVisibleBorder) {
+      elem.border_color = rgbToStr(borderColor);
+      elem.border_width_px = Math.round(borderWidth * 10) / 10;
+    }
+
+    if (text && color) {
+      elem.text_contrast_ratio = contrast(color, bg);
+    }
+
+    if (hasVisibleBorder) {
+      elem.ui_contrast_ratio = contrast(borderColor, bg);
+    } else if (UI_COMPONENT_TAGS.has(tag)) {
+      const fill = parseRgb(cs.backgroundColor);
+      if (fill) {
+        elem.ui_contrast_ratio = contrast(fill, bg);
+      }
+    }
+
+    out.push(elem);
   }
   return out;
 }
@@ -105,7 +202,7 @@ class PageCapture:
 def capture_page(
     url: str,
     *,
-    max_elements: int = 300,
+    max_elements: int = 500,
     goto_timeout_ms: int = 30_000,
     step_timeout_ms: int = 10_000,
 ) -> PageCapture:
@@ -184,6 +281,22 @@ def capture_page(
                     y=int(item.get("y", 0)),
                     w=int(item.get("w", 0)),
                     h=int(item.get("h", 0)),
+                    font_size_px=float(item.get("font_size_px", 0.0) or 0.0),
+                    font_weight=int(item.get("font_weight", 400) or 400),
+                    color=item.get("color", "") or "",
+                    effective_bg_color=item.get("effective_bg_color", "") or "",
+                    border_color=item.get("border_color", "") or "",
+                    border_width_px=float(item.get("border_width_px", 0.0) or 0.0),
+                    text_contrast_ratio=(
+                        float(item["text_contrast_ratio"])
+                        if "text_contrast_ratio" in item and item["text_contrast_ratio"] is not None
+                        else None
+                    ),
+                    ui_contrast_ratio=(
+                        float(item["ui_contrast_ratio"])
+                        if "ui_contrast_ratio" in item and item["ui_contrast_ratio"] is not None
+                        else None
+                    ),
                 )
                 for item in (raw_elements or [])
             ]

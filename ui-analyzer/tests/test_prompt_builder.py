@@ -121,6 +121,25 @@ def test_system_prompt_structure():
     assert "Do not compute numeric scores" in SYSTEM_PROMPT
 
 
+def test_system_prompt_mentions_authoritative_style_fields():
+    """SYSTEM_PROMPT documents the new per-element style attributes."""
+    assert "font_size_px" in SYSTEM_PROMPT
+    assert "text_contrast_ratio" in SYSTEM_PROMPT
+    assert "ui_contrast_ratio" in SYSTEM_PROMPT
+    assert "effective_bg_color" in SYSTEM_PROMPT
+    # Instruction: authoritative findings must be emitted with estimated="false"
+    assert 'estimated="false"' in SYSTEM_PROMPT
+
+
+def test_system_prompt_declares_2_4_7_out_of_scope():
+    """SYSTEM_PROMPT tells the model WCAG 2.4.7 is out of scope for static screenshots."""
+    # Evidence rule #5 updated: 2.4.7 is out of scope, not gated on axe data
+    assert "2.4.7" in SYSTEM_PROMPT
+    assert "out of scope" in SYSTEM_PROMPT
+    # And 1.4.1 narrowed to link-in-text-block
+    assert "link-in-text-block" in SYSTEM_PROMPT
+
+
 # ---------------------------------------------------------------------------
 # DOM injection tests
 # ---------------------------------------------------------------------------
@@ -269,3 +288,109 @@ def test_dom_elements_prompt_injection_escaped():
     # but it is enclosed inside an attribute value, which Claude receives as data.
     assert f'text="{injection}"' in xml   # value is data inside an attribute
     assert "<dom_elements" in xml          # it's inside the dom block, not free text
+
+
+def test_dom_elements_style_attributes_serialised():
+    """DomElement with full style data → <element ...> line contains every new attribute."""
+    dom_result = DomElements(elements=[
+        DomElement(
+            tag="p", role="", text="Muted subtext",
+            aria_label="", placeholder="", input_type="",
+            x=10, y=20, w=200, h=16,
+            font_size_px=14.0, font_weight=400,
+            color="rgb(102, 102, 102)",
+            effective_bg_color="rgb(255, 255, 255)",
+            border_color="", border_width_px=0.0,
+            text_contrast_ratio=5.74,
+            ui_contrast_ratio=None,
+        ),
+    ])
+    events = build_thread(
+        app_type="web_dashboard",
+        source_type="url",
+        image_source_value="https://example.com",
+        viewport_width=1280,
+        viewport_height=800,
+        axe_result=AxeCoreResult(findings=[]),
+        dom_result=dom_result,
+    )
+    # dom_elements is at index 2 when axe is present
+    xml = events[2].data
+    assert 'font_size_px="14.0"' in xml
+    assert 'font_weight="400"' in xml
+    assert 'color="rgb(102, 102, 102)"' in xml
+    assert 'effective_bg_color="rgb(255, 255, 255)"' in xml
+    assert 'text_contrast_ratio="5.74"' in xml
+    # Absent / None fields must NOT appear on the line
+    assert 'border_color=' not in xml
+    assert 'border_width_px=' not in xml
+    assert 'ui_contrast_ratio=' not in xml
+
+
+def test_dom_elements_border_and_ui_contrast_emitted_when_present():
+    """Bordered element with ui_contrast_ratio → both border_* and ui_contrast_ratio appear."""
+    dom_result = DomElements(elements=[
+        DomElement(
+            tag="button", role="", text="Outlined",
+            aria_label="", placeholder="", input_type="",
+            x=0, y=0, w=120, h=40,
+            font_size_px=16.0, font_weight=500,
+            color="rgb(17, 17, 17)",
+            effective_bg_color="rgb(255, 255, 255)",
+            border_color="rgb(204, 204, 204)",
+            border_width_px=1.0,
+            text_contrast_ratio=19.07,
+            ui_contrast_ratio=1.61,
+        ),
+    ])
+    events = build_thread(
+        app_type="web_dashboard",
+        source_type="url",
+        image_source_value="https://example.com",
+        viewport_width=1280,
+        viewport_height=800,
+        axe_result=AxeCoreResult(findings=[]),
+        dom_result=dom_result,
+    )
+    xml = events[2].data
+    assert 'border_color="rgb(204, 204, 204)"' in xml
+    assert 'border_width_px="1.0"' in xml
+    assert 'ui_contrast_ratio="1.61"' in xml
+    assert 'text_contrast_ratio="19.07"' in xml
+
+
+def test_dom_elements_style_xml_parses():
+    """Serialised <dom_elements> with style attributes parses via xml.etree without error."""
+    import xml.etree.ElementTree as ET
+
+    dom_result = DomElements(elements=[
+        DomElement(
+            tag="p", role="", text='Say "hi" & <bye>',
+            aria_label="", placeholder="", input_type="",
+            x=0, y=0, w=100, h=20,
+            font_size_px=14.0, font_weight=400,
+            color="rgb(0, 0, 0)",
+            effective_bg_color="rgb(255, 255, 255)",
+            border_color="", border_width_px=0.0,
+            text_contrast_ratio=21.0,
+            ui_contrast_ratio=None,
+        ),
+    ])
+    events = build_thread(
+        app_type="web_dashboard",
+        source_type="file",
+        image_source_value="local",
+        viewport_width=1280,
+        viewport_height=800,
+        axe_result=None,
+        dom_result=dom_result,
+    )
+    # source_type="file" + axe_result=None → dom_elements at index 1
+    xml = events[1].data
+    # Must parse as well-formed XML (stand-in for injection / escape correctness)
+    root = ET.fromstring(xml)
+    assert root.tag == "dom_elements"
+    child = root.find("element")
+    assert child is not None
+    assert child.attrib["color"] == "rgb(0, 0, 0)"
+    assert child.attrib["font_size_px"] == "14.0"

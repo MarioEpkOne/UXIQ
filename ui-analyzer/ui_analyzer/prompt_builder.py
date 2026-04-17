@@ -18,6 +18,40 @@ TIER4_DEFINITIONS: dict[str, object] = {
 }
 
 
+def _elem_line(el) -> str:
+    """Serialise one DomElement to an <element ...> XML line.
+
+    String attrs are HTML-escaped; integer attrs emitted verbatim. Border-
+    and contrast-related attributes are emitted only when meaningful:
+
+    - `border_color`/`border_width_px` only when `border_color` is non-empty.
+    - `text_contrast_ratio` only when not None.
+    - `ui_contrast_ratio` only when not None.
+    """
+    parts = [
+        f'tag="{html.escape(el.tag, quote=True)}"',
+        f'role="{html.escape(el.role, quote=True)}"',
+        f'text="{html.escape(el.text, quote=True)}"',
+        f'aria_label="{html.escape(el.aria_label, quote=True)}"',
+        f'alt="{html.escape(el.alt, quote=True)}"',
+        f'placeholder="{html.escape(el.placeholder, quote=True)}"',
+        f'input_type="{html.escape(el.input_type, quote=True)}"',
+        f'x="{el.x}" y="{el.y}" w="{el.w}" h="{el.h}"',
+        f'font_size_px="{el.font_size_px}"',
+        f'font_weight="{el.font_weight}"',
+        f'color="{html.escape(el.color, quote=True)}"',
+        f'effective_bg_color="{html.escape(el.effective_bg_color, quote=True)}"',
+    ]
+    if el.border_color:
+        parts.append(f'border_color="{html.escape(el.border_color, quote=True)}"')
+        parts.append(f'border_width_px="{el.border_width_px}"')
+    if el.text_contrast_ratio is not None:
+        parts.append(f'text_contrast_ratio="{el.text_contrast_ratio}"')
+    if el.ui_contrast_ratio is not None:
+        parts.append(f'ui_contrast_ratio="{el.ui_contrast_ratio}"')
+    return f'  <element {" ".join(parts)}/>'
+
+
 def build_thread(
     app_type: str,
     source_type: Literal["url", "file"],
@@ -90,17 +124,7 @@ def build_thread(
     if isinstance(dom_result, DomElements):
         # Serialize elements as XML string for verbatim injection.
         # String attributes are HTML-escaped; integer attributes are emitted verbatim.
-        element_lines = [
-            f'  <element tag="{html.escape(el.tag, quote=True)}" '
-            f'role="{html.escape(el.role, quote=True)}" '
-            f'text="{html.escape(el.text, quote=True)}" '
-            f'aria_label="{html.escape(el.aria_label, quote=True)}" '
-            f'alt="{html.escape(el.alt, quote=True)}" '
-            f'placeholder="{html.escape(el.placeholder, quote=True)}" '
-            f'input_type="{html.escape(el.input_type, quote=True)}" '
-            f'x="{el.x}" y="{el.y}" w="{el.w}" h="{el.h}"/>'
-            for el in dom_result.elements
-        ]
+        element_lines = [_elem_line(el) for el in dom_result.elements]
         dom_xml = (
             f'<dom_elements count="{len(dom_result.elements)}" '
             f'viewport_width="1280" viewport_height="800">\n'

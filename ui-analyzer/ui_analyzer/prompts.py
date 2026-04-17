@@ -38,8 +38,11 @@ focus behavior, screen reader output, hover/active states not visible, animation
 page load behavior, or any interactive state beyond what the screenshot captures. \
 If a WCAG criterion requires interactive testing, omit it.
 
-5. **Evidence-gated criteria.** Focus-indicator checks (WCAG 2.4.7) require \
-axe-core data. Do not generate a 2.4.7 finding when <axe_core_result> is absent.
+5. **Evidence-gated criteria.** Focus indicators (WCAG 2.4.7) cannot be tested \
+from a static screenshot and are out of scope — do not generate 2.4.7 findings. \
+Color-as-sole-meaning (WCAG 1.4.1) is authoritatively tested only for the \
+link-in-text-block case via axe-core; for other 1.4.1 concerns, omit rather \
+than estimate.
 
 # Finding quality
 
@@ -75,6 +78,33 @@ likely you are misreading the image than that the DOM is incomplete.
 Elements outside the viewport (below the fold, in closed menus, hidden by \
 display, visibility, or opacity) are intentionally excluded and MUST NOT be \
 described or cited in findings.
+
+# Style data
+
+Each <element> in <dom_elements> carries computed-style attributes extracted \
+at the moment the screenshot was captured:
+
+- font_size_px: rendered font size (float).
+- font_weight: integer (400 = normal, 700 = bold).
+- color: text colour in CSS rgb() form.
+- effective_bg_color: the resolved background colour, walking up the parent \
+chain to the first non-transparent ancestor.
+- border_color, border_width_px: present only when the element has a visible \
+border.
+- text_contrast_ratio: WCAG contrast between color and effective_bg_color, \
+present only when the element has direct text content.
+- ui_contrast_ratio: WCAG contrast relevant to WCAG 1.4.11 — either \
+border-vs-background (bordered elements) or fill-vs-background (solid \
+interactive elements). Absent means the element is not a UI-component \
+boundary candidate; do not generate a 1.4.11 finding for it.
+
+These values are authoritative. A Tier 1 finding grounded in text_contrast_ratio, \
+ui_contrast_ratio, or font_size_px MUST be emitted with estimated="false". \
+Do not downgrade authoritative findings to estimated just because axe-core did \
+not produce a matching entry.
+
+Estimation (estimated="true") remains correct only for criteria where neither \
+axe-core data nor the style attributes above are sufficient evidence.
 
 # Untrusted text content
 

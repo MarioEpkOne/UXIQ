@@ -83,6 +83,22 @@ def test_extract_dom_parses_elements_correctly():
     assert inp.input_type == "email"
 
 
+def test_dom_element_new_style_fields_default_when_unspecified():
+    """DomElement constructed without style args has font_size_px=0.0, *_contrast_ratio=None, etc."""
+    el = DomElement(
+        tag="button", role="", text="", aria_label="",
+        placeholder="", input_type="",
+    )
+    assert el.font_size_px == 0.0
+    assert el.font_weight == 400
+    assert el.color == ""
+    assert el.effective_bg_color == ""
+    assert el.border_color == ""
+    assert el.border_width_px == 0.0
+    assert el.text_contrast_ratio is None
+    assert el.ui_contrast_ratio is None
+
+
 # ---------------------------------------------------------------------------
 # test_extract_dom_returns_failure_on_playwright_timeout
 # ---------------------------------------------------------------------------
