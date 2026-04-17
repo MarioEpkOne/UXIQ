@@ -37,3 +37,5 @@ cd ui-analyzer
 pip install -e ".[dev]"
 pytest
 ```
+
+> **WSL2 note**: `UXIQ_ANTHROPIC_API_KEY` is set in `~/.bashrc`. Non-login shells (e.g. Claude Code sessions) don't source it automatically. Prefix CLI invocations with `source ~/.bashrc &&` or run it once before using `uxiq analyze`.
